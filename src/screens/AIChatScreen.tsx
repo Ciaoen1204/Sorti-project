@@ -1,33 +1,38 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  StyleSheet,
-  SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
-  ListRenderItemInfo,
-} from 'react-native';
+import { LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import {advicePresentation} from '../services/adviceSections';
+import {chatHistory,chatPresentation} from '../services/chatPresentation';
+import ChatAdvice from '../components/ChatAdvice';
+import { displayPersona } from '../design/personaLabel';
+import { useScreenStyles } from '../design/useScreenStyles';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { ActivityIndicator, Image, View, FlatList, StyleSheet, KeyboardAvoidingView, Platform, ListRenderItemInfo } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { useTheme } from '../context/ThemeContext';
 import { sendMessageToAI } from '../services/aiApi';
+import {
+  loadAiChatMessages,
+  saveAiChatMessage,
+} from '../services/supabaseData';
 import type { ChatItem } from '../types/ai';
 
 type MessageSender = 'user' | 'ai' | 'loading';
 
 const PERSONA_ALIASES: Record<string, string> = {
-  '遮醜結果師': '遮醜結界師',
-  '遮醜結介師': '遮醜結界師',
-  '遮醜結界士': '遮醜結界師',
-  '首席秩序官員': '首席秩序官',
-  '時光展覽師': '時光展覽家',
+  遮醜結果師: '遮醜結界師',
+  遮醜結介師: '遮醜結界師',
+  遮醜結界士: '遮醜結界師',
+  首席秩序官員: '首席秩序官',
+  時光展覽師: '時光展覽家',
 };
 
 function normalizePersona(persona: string | null | undefined): string {
@@ -46,27 +51,38 @@ interface Message {
 
 const AIChatScreen = ({ route, navigation }: any) => {
   const routeParams = route?.params ?? {};
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
   const listRef = useRef<FlatList<Message>>(null);
+  const inputRef = useRef<TextInput>(null);
   const [inputText, setInputText] = useState('');
+  const [followupContext,setFollowupContext]=useState('');
   const [loading, setLoading] = useState(false);
   const [userPersona, setUserPersona] = useState('未提供收納人格');
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'ai',
-      text: '你好，我是你的 AI 收納導師。你可以直接描述現在最亂的地方，我會幫你判斷哪些先丟、哪些先留、哪些適合收納。',
+      text: '你好，想整理哪個空間？你可以描述目前的狀況，或詢問物品分類與收納方式。',
       createdAt: Date.now(),
     },
   ]);
 
-  const detectedItems: ChatItem[] = Array.isArray(routeParams.detectedItems)
-    ? routeParams.detectedItems.filter((item: unknown): item is ChatItem => {
-        if (!item || typeof item !== 'object') return false;
-        const candidate = item as ChatItem;
-        return typeof candidate.name === 'string' && typeof candidate.category === 'string';
-      })
-    : [];
+  const [contextCleared, setContextCleared] = useState(false);
+  useEffect(() => {
+    setContextCleared(false);
+  }, [routeParams.detectedItems]);
+  const detectedItems: ChatItem[] =
+    !contextCleared && Array.isArray(routeParams.detectedItems)
+      ? routeParams.detectedItems.filter((item: unknown): item is ChatItem => {
+          if (!item || typeof item !== 'object') return false;
+          const candidate = item as ChatItem;
+          return (
+            typeof candidate.name === 'string' &&
+            typeof candidate.category === 'string'
+          );
+        })
+      : [];
 
   const routePersona = routeParams?.userPersona ?? routeParams?.persona;
 
@@ -76,10 +92,14 @@ const AIChatScreen = ({ route, navigation }: any) => {
 
       const loadPersona = async () => {
         try {
-          const savedPersona = await AsyncStorage.getItem('user_magic_identity');
+          const [savedPersona, remoteMessages] = await Promise.all([
+            AsyncStorage.getItem('user_magic_identity'),
+            loadAiChatMessages().catch(() => []),
+          ]);
           if (!active) return;
 
           setUserPersona(normalizePersona(routePersona ?? savedPersona));
+          if (remoteMessages.length > 0) setMessages(remoteMessages);
         } catch (error) {
           if (!active) return;
           console.log('讀取收納人格失敗', error);
@@ -104,7 +124,7 @@ const AIChatScreen = ({ route, navigation }: any) => {
       subtitle: { color: theme.textSub },
       metaPill: { backgroundColor: theme.background },
       metaPillText: { color: theme.textSub },
-      userText: { color: isDarkMode ? '#1c1816' : '#333' },
+      userText: { color: theme.onPrimary },
       aiText: { color: theme.textMain },
       inputRow: { backgroundColor: theme.cardBg, borderTopColor: theme.border },
       input: {
@@ -113,9 +133,9 @@ const AIChatScreen = ({ route, navigation }: any) => {
         color: theme.textMain,
       },
       sendButton: { backgroundColor: theme.primary },
-      sendText: { color: isDarkMode ? '#1c1816' : '#fff' },
+      sendText: { color: theme.onPrimary },
     }),
-    [theme, isDarkMode],
+    [theme],
   );
 
   const scrollToBottom = () => {
@@ -126,13 +146,18 @@ const AIChatScreen = ({ route, navigation }: any) => {
 
   const formatTime = (timestamp: number) => {
     const now = new Date(timestamp);
-    return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    return `${now.getHours().toString().padStart(2, '0')}:${now
+      .getMinutes()
+      .toString()
+      .padStart(2, '0')}`;
   };
 
-  const handleSend = async () => {
-    const trimmedInput = inputText.trim();
+  const handleSend = async (question?: string, replyContext?: string) => {
+    const trimmedInput = (question ?? inputText).trim();
     if (!trimmedInput || loading) return;
 
+    const contextForReply=replyContext || followupContext;
+    setFollowupContext('');
     const now = Date.now();
     const userMessage: Message = {
       id: `${now}-user`,
@@ -144,20 +169,25 @@ const AIChatScreen = ({ route, navigation }: any) => {
     const loadingMessage: Message = {
       id: `${now}-loading`,
       sender: 'loading',
-      text: 'AI 導師思考中...',
+      text: '正在回覆…',
       createdAt: now,
     };
 
-    setMessages((prev) => [...prev, userMessage, loadingMessage]);
+    setMessages(prev => [...prev, userMessage, loadingMessage]);
     setInputText('');
     setLoading(true);
     scrollToBottom();
 
     try {
+      await saveAiChatMessage('user', trimmedInput, detectedItems);
       const result = await sendMessageToAI({
         message: trimmedInput,
+        history: chatHistory(messages.filter(m=>m.id!=='welcome'),contextForReply),
         items: detectedItems,
-        user_persona: userPersona === '未提供收納人格' ? undefined : normalizePersona(userPersona),
+        user_persona:
+          userPersona === '未提供收納人格'
+            ? undefined
+            : normalizePersona(userPersona),
       });
 
       const aiMessage: Message = {
@@ -167,7 +197,13 @@ const AIChatScreen = ({ route, navigation }: any) => {
         createdAt: Date.now(),
       };
 
-      setMessages((prev) => prev.filter((message) => message.id !== loadingMessage.id).concat(aiMessage));
+      await saveAiChatMessage('assistant', result.reply, detectedItems);
+
+      setMessages(prev =>
+        prev
+          .filter(message => message.id !== loadingMessage.id)
+          .concat(aiMessage),
+      );
     } catch (error) {
       const errorMessage: Message = {
         id: `${Date.now()}-error`,
@@ -179,7 +215,11 @@ const AIChatScreen = ({ route, navigation }: any) => {
         createdAt: Date.now(),
       };
 
-      setMessages((prev) => prev.filter((message) => message.id !== loadingMessage.id).concat(errorMessage));
+      setMessages(prev =>
+        prev
+          .filter(message => message.id !== loadingMessage.id)
+          .concat(errorMessage),
+      );
     } finally {
       setLoading(false);
       scrollToBottom();
@@ -189,6 +229,7 @@ const AIChatScreen = ({ route, navigation }: any) => {
   const renderItem = ({ item }: ListRenderItemInfo<Message>) => {
     const isUser = item.sender === 'user';
     const isLoading = item.sender === 'loading';
+    const hasSteps=!isUser&&!isLoading&&advicePresentation(chatPresentation(item.text).body).some(section=>section.blocks.some(block=>block.kind==='step'));
 
     return (
       <View
@@ -198,24 +239,28 @@ const AIChatScreen = ({ route, navigation }: any) => {
           isLoading && styles.loadingRow,
         ]}
       >
+        {!isUser&&<Image source={require('../assets/images/sorti-logo.png')} style={{width:28,height:28,marginRight:7,marginTop:4}}/>}
         <View
           style={[
             styles.bubble,
             isUser ? styles.userBubble : styles.aiBubble,
             isLoading && styles.loadingBubble,
+            {backgroundColor:isUser?theme.primary:theme.cardBg,borderColor:theme.border},
+            hasSteps&&{backgroundColor:'transparent',borderWidth:0,padding:0,maxWidth:'88%'},
           ]}
         >
           {isLoading ? (
             <View style={styles.loadingContent}>
               <ActivityIndicator size="small" color="#5c5c5c" />
-              <Text style={styles.loadingText}>{item.text}</Text>
+              <Text style={styles.loadingText} localize={false}>{item.text}</Text>
             </View>
           ) : (
-            <Text style={isUser ? [styles.userText, dynamicStyles.userText] : [styles.aiText, dynamicStyles.aiText]}>
-              {item.text}
-            </Text>
+            isUser ? <Text style={[styles.userText,dynamicStyles.userText]} localize={false}>{item.text}</Text> :
+            <ChatAdvice text={item.text} interactive={!loading&&item.id===messages[messages.length-1]?.id&&item.id!=='welcome'} onChoose={question=>{void handleSend(question,item.text);}} onCustomInput={()=>{setFollowupContext(item.text);inputRef.current?.focus();}}/>
           )}
-          <Text style={[styles.timeText, isUser ? styles.userTime : styles.aiTime]}>
+          <Text
+            style={[styles.timeText, isUser ? styles.userTime : styles.aiTime, {color:isUser?theme.onPrimary:theme.textSub}]}
+          >
             {formatTime(item.createdAt)}
           </Text>
         </View>
@@ -231,28 +276,39 @@ const AIChatScreen = ({ route, navigation }: any) => {
       >
         <View style={[styles.hero, dynamicStyles.hero]}>
           <View style={styles.heroTopRow}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <TouchableOpacity
+              style={styles.backBtn}
+              onPress={() => navigation.goBack()}
+            >
               <Icon name="chevron-back" size={28} color={theme.textMain} />
             </TouchableOpacity>
+            <Image source={require('../assets/images/sorti-logo.png')} style={{width:42,height:42,marginRight:12}}/>
             <View style={styles.heroTitleBlock}>
-              <Text style={[styles.title, dynamicStyles.title]}>AI 收納聊天機器人</Text>
+              <Text style={[styles.title, dynamicStyles.title]}>收納助理</Text>
               <Text style={[styles.subtitle, dynamicStyles.subtitle]}>
-                先減量，再收納，讓每次對話都能直接變成整理行動。
+                步驟一次看清楚，有問題隨時問
               </Text>
             </View>
             <View style={styles.headerSpacer} />
           </View>
 
+          {!!detectedItems.length && (
+            <TouchableOpacity onPress={() => setContextCleared(true)}>
+              <Text style={{ color: theme.primary }}>清除物品背景</Text>
+            </TouchableOpacity>
+          )}
           <View style={styles.metaPills}>
             <View style={[styles.metaPill, dynamicStyles.metaPill]}>
-              <Text style={[styles.metaPillText, dynamicStyles.metaPillText]}>人格：{userPersona}</Text>
+              <Text style={[styles.metaPillText, dynamicStyles.metaPillText]}>
+                偏好：{displayPersona(userPersona)}
+              </Text>
             </View>
-            <View style={[styles.metaPill, dynamicStyles.metaPill]}>
-              <Text style={[styles.metaPillText, dynamicStyles.metaPillText]}>已串接後端 /chat</Text>
-            </View>
+
             <View style={[styles.metaPill, dynamicStyles.metaPill]}>
               <Text style={[styles.metaPillText, dynamicStyles.metaPillText]}>
-                {detectedItems.length > 0 ? `已帶入 ${detectedItems.length} 個物品` : '未帶入物品清單'}
+                {detectedItems.length > 0
+                  ? `已帶入 ${detectedItems.length} 個物品`
+                  : '可直接描述你的空間'}
               </Text>
             </View>
           </View>
@@ -261,7 +317,7 @@ const AIChatScreen = ({ route, navigation }: any) => {
         <FlatList
           ref={listRef}
           data={messages}
-          keyExtractor={(item) => item.id}
+          keyExtractor={item => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.messageList}
           onContentSizeChange={scrollToBottom}
@@ -269,12 +325,13 @@ const AIChatScreen = ({ route, navigation }: any) => {
         />
 
         <View style={[styles.inputRow, dynamicStyles.inputRow]}>
-          <TextInput
+          <TextInput ref={inputRef}
             style={[styles.input, dynamicStyles.input]}
             value={inputText}
             onChangeText={setInputText}
-            placeholder="例如：我的桌子很亂，該從哪裡開始整理？"
-            placeholderTextColor={isDarkMode ? '#8b7f73' : '#8e8e8e'}
+            accessibilityLabel="你的問題"
+            placeholder="哪一步有問題？直接問我"
+            placeholderTextColor={theme.placeholder}
             multiline
             editable={!loading}
           />
@@ -285,12 +342,11 @@ const AIChatScreen = ({ route, navigation }: any) => {
               dynamicStyles.sendButton,
               (loading || !inputText.trim()) && styles.sendButtonDisabled,
             ]}
-            onPress={handleSend}
+            accessibilityRole="button" accessibilityLabel="送出訊息"
+            onPress={() => {void handleSend();}}
             disabled={loading || !inputText.trim()}
           >
-            <Text style={[styles.sendText, dynamicStyles.sendText]}>
-              {loading ? '傳送中' : '送出'}
-            </Text>
+            {loading?<ActivityIndicator color={theme.onPrimary}/>:<Icon name="arrow-up" size={23} color={theme.onPrimary}/>}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -298,7 +354,7 @@ const AIChatScreen = ({ route, navigation }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -313,7 +369,7 @@ const styles = StyleSheet.create({
   },
   heroTopRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   backBtn: {
     paddingVertical: 5,
@@ -324,12 +380,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 24,
+    fontSize: 19,
     fontWeight: '800',
   },
   subtitle: {
     marginTop: 6,
-    fontSize: 14,
+    fontSize: 12,
     lineHeight: 20,
   },
   headerSpacer: {
@@ -430,17 +486,19 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 44,
     maxHeight: 120,
-    borderRadius: 12,
-    paddingHorizontal: 12,
+    borderRadius: 24,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 16,
     borderWidth: 1,
   },
   sendButton: {
     marginLeft: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 12,
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 23,
   },
   sendButtonDisabled: {
     opacity: 0.55,

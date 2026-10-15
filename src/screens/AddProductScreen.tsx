@@ -1,270 +1,564 @@
-import React, { useState } from 'react';
+import { LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import DeliverySelect from '../components/DeliverySelect';
 import {
-  StyleSheet,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  Image,
-  Alert,
-} from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import { useTheme } from '../context/ThemeContext';
-// 1. 導入原生相機與相簿選擇套件
+  channelLabel,
+  deliveryChannels,
+  deliverySummary,
+  type DeliveryOption,
+} from '../services/deliveryChannels';
+import {
+  itemConditions,
+  validateDelivery,
+  marketRequestId,
+} from '../services/marketplaceOrder';
+import React, { useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import { useTheme } from '../context/ThemeContext';
+import MarketImage from '../components/MarketImage';
+import * as data from '../services/supabaseData';
+import {
+  currency,
+  listingCategories,
+  validateListing,
+} from '../services/marketplace';
 
-const AddProductScreen = ({ navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
-  const [title, setTitle] = useState('');
-  const [price, setPrice] = useState('');
-  const [location, setLocation] = useState('');
-  const [description, setDescription] = useState('');
-  const [imageUri, setImageUri] = useState<string | null>(null); // 用於存放選取的照片路徑
-
-  // 關鍵修正：將動態文字顏色移出標籤行內樣式，徹底消除 ESLint 警告
-  const submitBtnTextStyle = [
-    styles.submitBtnText,
-    { color: isDarkMode ? '#1c1816' : '#fff' }
-  ];
-
-  // 2. 處理選擇照片的對話框（相機拍照或相簿選擇）
-  const handleSelectImage = () => {
-    Alert.alert(
-      '上傳寶物照片',
-      '請選擇照片來源',
-      [
+type InventoryItem = Awaited<ReturnType<typeof data.loadRemoteItems>>[number];
+export default function AddProductScreen({ route, navigation }: any) {
+  const editing: data.ProductRecord | undefined = route.params?.product;
+  const { theme } = useTheme();
+  const [step, setStep] = useState(
+    editing || route.params?.itemName ? 'form' : 'source',
+  );
+  const [showPreview, setShowPreview] = useState(false);
+  const [title, setTitle] = useState(
+    editing?.title ?? route.params?.itemName ?? '',
+  );
+  const [category, setCategory] = useState(
+    editing?.category || route.params?.itemCategory || '其他',
+  );
+  const [price, setPrice] = useState(editing ? String(editing.price) : '');
+  const [location, setLocation] = useState(editing?.location || '');
+  const [description, setDescription] = useState(editing?.description || '');
+  const [imageUri, setImageUri] = useState(
+    editing?.img || route.params?.itemImageUri || '',
+  );
+  const [items, setItems] = useState<InventoryItem[]>([]),
+    [showItems, setShowItems] = useState(false);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  const [published, setPublished] = useState<data.ProductRecord | null>(null);
+  const [condition, setCondition] = useState(editing?.condition || '');
+  const [defects, setDefects] = useState(editing?.defects || '');
+  const requestId = useRef(marketRequestId());
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOption[]>(
+    editing?.deliveryOptions ||
+      (editing ? [] : [{ channel: 'meetup', fee: 0, note: '' }]),
+  );
+  const { allowMeetup, allowShipping, meetupNote, shippingNote, shippingFee } =
+    deliverySummary(deliveryOptions);
+  const updateDeliveryOptions = setDeliveryOptions;
+  const delivery = { condition, defects, ...deliverySummary(deliveryOptions) };
+  const lock = useRef(false);
+  const text = { color: theme.textMain };
+  const button = (label: string, action: () => void, primary = false) => (
+    <TouchableOpacity
+      accessibilityRole="button"
+      disabled={busy}
+      onPress={action}
+      style={[
+        styles.button,
         {
-          text: '相機拍照',
-          onPress: () => {
-            launchCamera(
-              { mediaType: 'photo', cameraType: 'back', quality: 0.8 },
-              (response) => {
-                if (response.assets && response.assets.length > 0) {
-                  setImageUri(response.assets[0].uri || null);
-                }
-              }
-            );
-          },
+          backgroundColor: primary ? theme.primary : theme.cardBg,
+          borderColor: theme.border,
+          opacity: busy ? 0.65 : 1,
         },
-        {
-          text: '從相簿選擇',
-          onPress: () => {
-            launchImageLibrary(
-              { mediaType: 'photo', quality: 0.8 },
-              (response) => {
-                if (response.assets && response.assets.length > 0) {
-                  setImageUri(response.assets[0].uri || null);
-                }
-              }
-            );
-          },
-        },
-        { text: '取消', style: 'cancel' },
-      ]
-    );
-  };
-
-  // 3. 確認上架物品與欄位防呆驗證
-  const handleSubmit = () => {
-    if (!imageUri) {
-      Alert.alert('提示', '請先為你的收納寶物拍張精美的照片喔！📸');
+      ]}
+    >
+      <Text
+        style={{
+          color: primary ? theme.onPrimary : theme.textMain,
+          fontWeight: '600',
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+  const input = (
+    label: string,
+    value: string,
+    change: (v: string) => void,
+    numeric = false,
+    multiline = false,
+  ) => (
+    <View style={styles.field}>
+      <Text style={text}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={change}
+        editable={!busy}
+        multiline={multiline}
+        keyboardType={numeric ? 'decimal-pad' : 'default'}
+        style={[
+          styles.input,
+          text,
+          { backgroundColor: theme.background, borderColor: theme.border },
+          multiline && styles.multiline,
+        ]}
+      />
+    </View>
+  );
+  async function choosePhoto(camera: boolean) {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const response = camera
+        ? await launchCamera({
+            mediaType: 'photo',
+            cameraType: 'back',
+            quality: 0.8,
+          })
+        : await launchImageLibrary({ mediaType: 'photo', quality: 0.8 });
+      if (response.errorCode)
+        throw new Error(
+          response.errorMessage || '無法取得照片，請檢查相機或相簿權限。',
+        );
+      if (response.assets?.[0]?.uri) setImageUri(response.assets[0].uri);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '無法取得照片。');
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  async function chooseInventory() {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    setShowItems(true);
+    try {
+      setItems(await data.loadRemoteItems());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '無法載入我的物品。');
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
+  function preview() {
+    try {
+      validateListing({ title, category, price, location, imageUri });
+      setError('');
+      validateDelivery(delivery);
+      setShowPreview(true);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function publish() {
+    if (lock.current) return;
+    try {
+      validateListing({ title, category, price, location, imageUri });
+    } catch (e) {
+      setError((e as Error).message);
       return;
     }
-    if (!title.trim()) {
-      Alert.alert('提示', '請填寫商品名稱');
-      return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const values = {
+        ...delivery,
+        requestId: requestId.current,
+        title: title.trim(),
+        category,
+        price: Number(price),
+        location: location.trim(),
+        description: description.trim(),
+        imageUri,
+      };
+      let saved: data.ProductRecord;
+      if (editing) {
+        await data.updateProduct(editing.id, {
+          ...values,
+          imageUri: imageUri === editing.img ? undefined : imageUri,
+        });
+        saved = await data.loadProduct(editing.id);
+      } else saved = await data.createProduct(values);
+      setPublished(saved);
+      setStep('success');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '刊登失敗，請稍後重試。');
+    } finally {
+      lock.current = false;
+      setBusy(false);
     }
-    if (!price.trim() || isNaN(Number(price))) {
-      Alert.alert('提示', '請填寫正確的預售價格');
-      return;
-    }
-    if (!location.trim()) {
-      Alert.alert('提示', '請填寫面交或寄出地點');
-      return;
-    }
-
-    // 模擬將新建立的商品對象打包
-    const newProduct = {
-      id: Date.now().toString(), // 隨機生成唯一ID
-      title: title.trim(),
-      price: Number(price),
-      location: location.trim(),
-      img: imageUri,
-      description: description.trim() || '這是一件精心維護的收納好物，歡迎詢問細節！',
-    };
-
-    console.log('成功上架新商品：', newProduct);
-
-    Alert.alert(
-      '上架成功 🎉',
-      '恭喜！你的二手收納好物已成功發布到二手拍賣市集。',
-      [
-        {
-          text: '太棒了',
-          onPress: () => {
-            // 完美回傳資料給前一頁，或直接返回拍賣首頁
-            navigation.navigate('Market', { newProduct });
-          },
-        },
-      ]
-    );
-  };
-
+  }
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* 頂部導覽列 */}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-back" size={28} color={theme.textMain} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>發布二手好物</Text>
-        <View style={styles.placeholderWidth} />
+        {button('返回', () => {
+          if (showPreview) setShowPreview(false);
+          else if (step === 'delivery') setStep('form');
+          else if (step === 'form' && !editing) setStep('source');
+          else navigation.goBack();
+        })}
+        <Text style={[styles.heading, text]}>
+          {editing ? '編輯商品' : '刊登商品'}
+        </Text>
       </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 照片上傳觀景窗（若有照片則顯示預覽，若無則顯示虛線框） */}
-        <TouchableOpacity 
-          style={[styles.photoUploadBox, { backgroundColor: theme.cardBg, borderColor: theme.border }]} 
-          activeOpacity={0.8}
-          onPress={handleSelectImage}
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.content}
         >
-          {imageUri ? (
-            <Image source={{ uri: imageUri }} style={styles.previewImage} />
-          ) : (
-            <View style={styles.uploadInner}>
-              <Icon name="camera-outline" size={36} color={theme.textSub} />
-              <Text style={[styles.uploadText, { color: theme.textMain }]}>上傳寶物照片</Text>
-              <Text style={[styles.uploadSubText, { color: theme.textSub }]}>清晰精美的照片能更快賣出喔！</Text>
+          {step !== 'success' && (
+            <Text style={{ color: theme.textSub }}>
+              1 選擇照片　›　2 商品資訊　›　3 交易與刊登
+            </Text>
+          )}
+          {step === 'source' && (
+            <>
+              {!!imageUri && <MarketImage uri={imageUri} />}
+              {button('拍攝照片', () => {
+                void choosePhoto(true);
+              })}
+              {button(
+                '下一步：商品資訊',
+                () => {
+                  if (imageUri) {
+                    setError('');
+                    setStep('form');
+                  } else setError('請先拍攝或選擇商品照片。');
+                },
+                true,
+              )}
+              <Text style={[styles.heading, text]}>想出售哪件物品？</Text>
+              {button(
+                '從我的物品中選擇',
+                () => {
+                  void chooseInventory();
+                },
+                true,
+              )}
+              {button('拍照或相簿新增', () => {
+                setShowItems(false);
+                void choosePhoto(false);
+              })}
+              <Text style={{ color: theme.textSub }}>
+                既有物品會帶入名稱、分類與照片，刊登前請確認內容。
+              </Text>
+              {showItems && !busy && !items.length && !error && (
+                <Text style={text}>目前沒有物品，可以拍照新增商品。</Text>
+              )}
+              {showItems &&
+                items.map(item => (
+                  <TouchableOpacity
+                    key={item.id}
+                    disabled={busy}
+                    onPress={() => {
+                      setTitle(item.name);
+                      setCategory(item.category || '其他');
+                      setImageUri(item.imageUri || '');
+                      setStep('form');
+                    }}
+                    style={[
+                      styles.inventory,
+                      {
+                        backgroundColor: theme.cardBg,
+                        borderColor: theme.border,
+                      },
+                    ]}
+                  >
+                    <MarketImage uri={item.imageUri} style={styles.thumb} />
+                    <View style={styles.container}>
+                      <Text style={text} localize={false}>{item.name}</Text>
+                      <Text style={{ color: theme.textSub }}>
+                        {item.category}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+            </>
+          )}
+          {step === 'form' && (
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              {!!imageUri && <MarketImage uri={imageUri} />}
+              <View style={styles.row}>
+                {button('拍攝照片', () => {
+                  void choosePhoto(true);
+                })}
+                {button('從相簿選擇', () => {
+                  void choosePhoto(false);
+                })}
+              </View>
+              {input('商品名稱', title, setTitle)}
+              <Text style={text}>分類</Text>
+              <ScrollView horizontal contentContainerStyle={styles.row}>
+                {Array.from(new Set([...listingCategories, category])).map(
+                  c => (
+                    <View key={c}>
+                      {button(c, () => setCategory(c), category === c)}
+                    </View>
+                  ),
+                )}
+              </ScrollView>
+              <Text style={text}>使用狀況</Text>
+              {itemConditions.map(c => (
+                <View key={c}>
+                  {button(c, () => setCondition(c), condition === c)}
+                </View>
+              ))}
+              {input('瑕疵說明', defects, setDefects, false, true)}
+              {input('商品描述', description, setDescription, false, true)}
+              <Text style={{ color: theme.textSub }}>
+                請描述使用狀況、瑕疵與尺寸。照片確認刊登後會公開。
+              </Text>
+              {input('價格（NT$）', price, setPrice, true)}
+              {input('面交或寄出地點', location, setLocation)}
+              <Text style={{ color: theme.textSub }}>
+                刊登照片會公開；交易方式於下一步設定。
+              </Text>
+              {button(
+                '下一步：交易方式',
+                () => {
+                  try {
+                    validateListing({
+                      title,
+                      category,
+                      price,
+                      location,
+                      imageUri,
+                    });
+                    setError('');
+                    setStep('delivery');
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                },
+                true,
+              )}
             </View>
           )}
-        </TouchableOpacity>
-
-        {/* 表單欄位 */}
-        <View style={styles.formContainer}>
-          <Text style={[styles.label, { color: theme.textMain }]}>商品名稱</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textMain }]}
-            placeholder="例如：無印風九成新雙層收納盒"
-            placeholderTextColor={isDarkMode ? '#6b5e56' : '#b5a4a4'}
-            value={title}
-            onChangeText={setTitle}
-          />
-
-          <Text style={[styles.label, { color: theme.textMain }]}>預售價格 (TWD)</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textMain }]}
-            placeholder="請輸入預期售價"
-            placeholderTextColor={isDarkMode ? '#6b5e56' : '#b5a4a4'}
-            keyboardType="number-pad"
-            value={price}
-            onChangeText={setPrice}
-          />
-
-          <Text style={[styles.label, { color: theme.textMain }]}>面交或寄出地點</Text>
-          <TextInput
-            style={[styles.input, { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textMain }]}
-            placeholder="例如：高雄市、台北市"
-            placeholderTextColor={isDarkMode ? '#6b5e56' : '#b5a4a4'}
-            value={location}
-            onChangeText={setLocation}
-          />
-
-          <Text style={[styles.label, { color: theme.textMain }]}>寶物詳情描述</Text>
-          <TextInput
-            style={[
-              styles.input, 
-              styles.textArea, 
-              { backgroundColor: theme.cardBg, borderColor: theme.border, color: theme.textMain }
-            ]}
-            placeholder="細心描述一下物品的新舊狀況、尺寸或使用心得吧..."
-            placeholderTextColor={isDarkMode ? '#6b5e56' : '#b5a4a4'}
-            multiline
-            numberOfLines={4}
-            value={description}
-            onChangeText={setDescription}
-          />
-        </View>
-
-        {/* 底部確認按鈕 */}
-        <TouchableOpacity 
-          style={[styles.submitBtn, { backgroundColor: theme.primary }]} 
-          onPress={handleSubmit}
-        >
-          <Text style={submitBtnTextStyle}>確認上架物品</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          {step === 'delivery' && !showPreview && (
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.heading, text]}>交易方式</Text>
+              {editing && !editing.deliveryOptions && (
+                <Text style={text}>
+                  舊商品請重新選擇提供的交易管道與運費後儲存。
+                </Text>
+              )}
+              {deliveryOptions.map((o, i) => (
+                <View key={i}>
+                  <DeliverySelect
+                    label={`交易方式 ${i + 1}`}
+                    value={o.channel}
+                    options={deliveryChannels.filter(
+                      c =>
+                        c.id === o.channel ||
+                        !deliveryOptions.some(v => v.channel === c.id),
+                    )}
+                    disabled={busy}
+                    onChange={v =>
+                      updateDeliveryOptions(
+                        deliveryOptions.map((option, j) =>
+                          i === j
+                            ? {
+                                ...option,
+                                channel: v as DeliveryOption['channel'],
+                                fee: v === 'meetup' ? 0 : option.fee,
+                              }
+                            : option,
+                        ),
+                      )
+                    }
+                  />
+                  {o.channel !== 'meetup' &&
+                    input(
+                      '運費（0 為免運）',
+                      Number.isNaN(o.fee) ? '' : String(o.fee),
+                      v =>
+                        updateDeliveryOptions(
+                          deliveryOptions.map((option, j) =>
+                            i === j
+                              ? { ...option, fee: v.trim() ? Number(v) : NaN }
+                              : option,
+                          ),
+                        ),
+                      true,
+                    )}
+                  {input('說明（選填）', o.note, v =>
+                    updateDeliveryOptions(
+                      deliveryOptions.map((option, j) =>
+                        i === j ? { ...option, note: v } : option,
+                      ),
+                    ),
+                  )}
+                  {button('移除這個方式', () =>
+                    updateDeliveryOptions(
+                      deliveryOptions.filter((_, j) => i !== j),
+                    ),
+                  )}
+                </View>
+              ))}
+              {deliveryOptions.length < 6 &&
+                button('新增交易方式', () => {
+                  const c = deliveryChannels.find(
+                    c => !deliveryOptions.some(o => o.channel === c.id),
+                  );
+                  if (c)
+                    updateDeliveryOptions([
+                      ...deliveryOptions,
+                      { channel: c.id, fee: 0, note: '' },
+                    ]);
+                })}
+              <Text style={text}>
+                至少開放一種方式。平台不代收付款、不提供物流保障。同賣家同方式合單取最高一件運費。
+              </Text>
+              {button('預覽商品', preview, true)}
+            </View>
+          )}
+          {step === 'delivery' && showPreview && (
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.heading, text]}>確認商品資訊</Text>
+              <MarketImage uri={imageUri} />
+              <Text style={[styles.heading, { color: theme.primary }]}>
+                {currency(Number(price))}
+              </Text>
+              <Text style={[styles.heading, text]}>{title}</Text>
+              <Text style={{ color: theme.textSub }}>
+                {category} · {location}
+              </Text>
+              <Text style={[styles.description, text]}>
+                {description || '尚未提供描述'}
+              </Text>
+              <Text style={text}>
+                {condition} · {defects || '瑕疵說明未提供'}
+              </Text>
+              <Text style={text}>
+                {allowMeetup ? '面交 ' : ''}
+                {allowShipping ? `寄送 · 運費 NT$ ${shippingFee}` : ''}
+              </Text>
+              {deliveryOptions.map(o => (
+                <Text key={o.channel} style={text}>
+                  {channelLabel(o.channel)}
+                  {o.channel === 'meetup' ? '' : ` · 運費 NT$ ${o.fee}`}
+                </Text>
+              ))}
+              <Text style={text}>
+                {meetupNote} {shippingNote}
+              </Text>
+              {button('返回修改', () => setShowPreview(false))}
+              {button(
+                editing ? '儲存修改' : '確認上架',
+                () => {
+                  void publish();
+                },
+                true,
+              )}
+            </View>
+          )}
+          {step === 'success' && published && (
+            <View
+              style={[
+                styles.card,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.heading, text]}>
+                {editing ? '商品修改成功' : '商品刊登成功'}
+              </Text>
+              <Text style={text}>照片與商品資訊已儲存。</Text>
+              {button(
+                '查看商品',
+                () =>
+                  navigation.navigate('ProductDetail', { product: published }),
+                true,
+              )}
+              {button('返回市集', () => navigation.navigate('Market'))}
+              {button('管理我的刊登', () =>
+                navigation.navigate('MarketplaceWorkspace', {
+                  role: 'seller',
+                  tab: 'products',
+                }),
+              )}
+            </View>
+          )}
+          {busy && (
+            <>
+              <ActivityIndicator color={theme.primary} />
+              <Text style={text}>
+                {step === 'preview' ? '正在上傳照片與儲存商品…' : '正在載入…'}
+              </Text>
+            </>
+          )}
+          {!!error && (
+            <Text accessibilityRole="alert" style={text}>
+              {error}
+            </Text>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
-};
-
+}
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
-    height: 60,
+    gap: 16,
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
   },
-  backBtn: { paddingVertical: 5, paddingRight: 15, zIndex: 10 },
-  headerTitle: {
-    position: 'absolute', left: 0, right: 0, textAlign: 'center',
-    fontSize: 20, fontWeight: '600',
-  },
-  placeholderWidth: { width: 32 },
-  scrollContent: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 40 },
-  
-  // 拍立得照片上傳區 / 預覽區
-  photoUploadBox: {
-    width: '100%',
-    height: 180,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    overflow: 'hidden', // 確保照片圓角完美貼齊外框
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  uploadInner: { alignItems: 'center' },
-  uploadText: { fontSize: 16, fontWeight: '600', marginTop: 10 },
-  uploadSubText: { fontSize: 12, marginTop: 4 },
-  
-  formContainer: { marginBottom: 15 },
-  label: { fontSize: 16, fontWeight: '600', marginBottom: 8, marginTop: 14 },
+  heading: { fontSize: 22, fontWeight: '700', lineHeight: 30 },
+  content: { padding: 16, paddingBottom: 32, gap: 16 },
+  card: { padding: 16, borderRadius: 16, borderWidth: 1, gap: 16 },
+  button: { borderWidth: 1, borderRadius: 12, padding: 14, minHeight: 48 },
+  field: { gap: 8 },
   input: {
+    minHeight: 52,
     borderWidth: 1,
     borderRadius: 12,
-    height: 50,
-    paddingHorizontal: 15,
-    fontSize: 15,
+    padding: 12,
+    fontSize: 16,
   },
-  textArea: {
-    height: 100,
-    paddingTop: 12,
-    paddingBottom: 12,
-    textAlignVertical: 'top',
-  },
-  submitBtn: {
-    height: 52,
-    width: '100%',
-    borderRadius: 14,
-    justifyContent: 'center',
+  multiline: { minHeight: 120, textAlignVertical: 'top' },
+  row: { flexDirection: 'row', gap: 8 },
+  description: { lineHeight: 25 },
+  inventory: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    gap: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 12,
   },
-  submitBtnText: { fontSize: 18, fontWeight: '600' },
+  thumb: { width: 72 },
 });
-
-export default AddProductScreen;

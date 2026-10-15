@@ -1,0 +1,11 @@
+fastapi
+google-genai
+python-dotenv
+python-multipart
+Pillow
+ultralytics
+uvicorn
+
+
+pypdf
+opencc-python-reimplemented

@@ -1,308 +1,440 @@
+import BearMark from '../components/BearMark';
+import {tr} from '../i18n/language';
+import { LocalizedText as Text, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import DraggableAssistant from '../components/DraggableAssistant';
+import PersonaDetails from '../components/PersonaDetails';
+import {getPrivateImageUrl,loadRemoteItems} from '../services/supabaseData';
+import { loadStorageProfile } from '../services/supabaseData';
+import BottomNav from '../components/BottomNav';
+import { displayPersona } from '../design/personaLabel';
+import { useScreenStyles } from '../design/useScreenStyles';
 import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  Image,
-} from 'react-native';
+import { StyleSheet, Image, View, ScrollView, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useIsFocused } from '@react-navigation/native'; // 當頁面重新獲得焦點時觸發讀取
-import { useTheme } from '../context/ThemeContext';
+import { useIsFocused } from '@react-navigation/native';
+import { useSortiTheme } from '../design/sortiTheme';
+import SortiBrand from '../components/SortiBrand';
 import { loadCheckInRecords } from '../services/photoTempStore';
+import { checkInDateKey } from '../services/checkInDate';
+import { supabase } from '../lib/supabase';
 
 const HomeScreen = ({ navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
-  // 建立動態魔法身分 state，預設值為「魔法學徒」
-  const [magicIdentity, setMagicIdentity] = useState('🧙‍♂️ 魔法學徒');
+  const { theme, isDarkMode } = useSortiTheme();
+  const styles = useScreenStyles(baseStyles, theme);
+  const [nickname,setNickname]=useState('');
+  const [avatar,setAvatar]=useState('');
+  const [itemCount,setItemCount]=useState<number|null>(null);
+  const [pendingCount,setPendingCount]=useState(0);
+  const [sellingCount,setSellingCount]=useState(0);
+  const [identity, setIdentity] = useState('收納新手');
+  const [showPersona, setShowPersona] = useState(false);
   const [checkInDays, setCheckInDays] = useState(0);
-  const isFocused = useIsFocused(); // 追蹤頁面是否處於當前焦點，防止頁面返回時不刷新
-
-  // 讀取儲存在手機內的魔法身分
-  const loadMagicIdentity = async () => {
-    try {
-      const savedIdentity = await AsyncStorage.getItem('user_magic_identity');
-      if (savedIdentity) {
-        // 因名稱本身不帶 Emoji，我們幫它加上精緻水晶球 🔮
-        setMagicIdentity(`🔮 ${savedIdentity}`);
-      } else {
-        setMagicIdentity('🧙‍♂️ 魔法學徒');
-      }
-    } catch (e) {
-      console.log('讀取魔法身分失敗', e);
-    }
-  };
-
-  const loadCheckInDays = async () => {
-    try {
-      const records = await loadCheckInRecords();
-      setCheckInDays(Object.keys(records).length);
-    } catch (e) {
-      console.log('讀取打卡天數失敗', e);
-      setCheckInDays(0);
-    }
-  };
-
-  // 每當首頁載入或從測驗頁跳轉回來時，都重新讀取一次
+  const [checkedInToday, setCheckedInToday] = useState(false);
+  const [dailyReminder, setDailyReminder] = useState(false);
+  const isFocused = useIsFocused();
   useEffect(() => {
-    if (isFocused) {
-      loadMagicIdentity();
-      loadCheckInDays();
+    if (!isFocused) {
+      return;
     }
+    let active = true;
+    supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        if (!active) return;
+        setDailyReminder(!!data.user?.user_metadata.daily_reminder);
+        const meta=data.user?.user_metadata||{};
+        setNickname(meta.display_name||meta.full_name||meta.username||'');
+        setAvatar(meta.avatar_url||meta.picture||'');
+        if(meta.avatar_path)getPrivateImageUrl('analysis-photos',meta.avatar_path).then(uri=>{if(active)setAvatar(uri);}).catch(()=>{});
+      })
+      .catch(() => {});
+    loadRemoteItems().then(items=>{if(active){setItemCount(items.length);setPendingCount(items.filter(i=>!i.storageLocation).length);setSellingCount(items.filter(i=>i.disposition==='sell').length);}}).catch(()=>{if(active)setItemCount(null);});
+    loadStorageProfile()
+      .then(profile => {
+        if (active) setIdentity(profile?.persona_name || '收納新手');
+      })
+      .catch(async () => {
+        const value = await AsyncStorage.getItem('user_magic_identity').catch(
+          () => null,
+        );
+        if (active) setIdentity(value || '收納新手');
+      });
+    loadCheckInRecords()
+      .then(records => {
+        if (!active) {
+          return;
+        }
+        const today = new Date();
+        const validDates = Object.keys(records).filter(key => {
+          const [year, month, day] = key.split('-').map(Number);
+          return new Date(year, month - 1, day) <= today;
+        });
+        setCheckInDays(validDates.length);
+        setCheckedInToday(!!records[checkInDateKey()]);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [isFocused]);
 
-  // 關鍵修正一：抽離底部工具列高亮文字的樣式，100% 避開行內樣式警告
-  const activeNavTextStyle = [
-    styles.activeNavText,
-    { color: theme.primary }
-  ];
-
-  // 關鍵修正二：抽離按鈕與身分徽章的動態文字樣式
-  const checkInBtnTextStyle = [
-    styles.checkInText,
-    { color: isDarkMode ? '#1c1816' : '#333' }
-  ];
-
-  const identityTextStyle = [
-    styles.identityText,
-    { color: isDarkMode ? '#1c1816' : '#333' }
-  ];
-
-  // 關鍵修正三：抽離半透明遮罩背景與 Icon 的動態色彩，解決 eslint 與字串格式報錯
-  const cardTextBgColor = isDarkMode ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.3)';
-  const fabIconColor = isDarkMode ? '#1c1816' : '#fff';
-
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* 頂部導覽列 ── 輕盈質感 */}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.openDrawer()}>
-          <Icon name="menu" size={28} color={theme.textMain} />
+        <TouchableOpacity
+          accessibilityLabel="開啟選單"
+          style={[
+            styles.iconButton,
+            { backgroundColor: theme.cardBg, borderColor: theme.border },
+          ]}
+          onPress={() => navigation.openDrawer()}
+        >
+          <Icon name="menu-outline" size={23} color={theme.textMain} />
         </TouchableOpacity>
-        <View style={styles.headerRight}>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Icon name="notifications-outline" size={24} color={theme.textMain} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.iconBtn} 
-            onPress={() => navigation.navigate('Settings')}
-          >
-            <Icon name="settings-outline" size={24} color={theme.textMain} />
-          </TouchableOpacity>
-        </View>
+        <View style={{marginLeft:'auto'}}><SortiBrand compact /></View>
       </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 歡迎語區塊 */}
-        <View style={styles.welcomeSection}>
-          <View style={styles.identityRow}>
-            <Text style={[styles.userGreeting, { color: theme.textSub }]}>您好</Text>
-            <View style={[styles.identityBadge, { backgroundColor: theme.primary }]}>
-              <Text style={identityTextStyle}>{magicIdentity}</Text>
-            </View>
-          </View>
-          <Text style={[styles.welcomeText, { color: theme.textMain }]}>今天想整理哪裡？</Text>
-        </View>
-
-        {/* 第一排：優化後的橫向流暢卡片 */}
-        <View style={styles.topRow}>
-          {/* 房間評分 ── 橫向專業儀表 */}
-          <View style={[styles.scoreCard, { backgroundColor: theme.cardBg }]}>
-            <View style={styles.scoreHeader}>
-              <Text style={[styles.cardTitle, { color: theme.textSub }]}>房間評分</Text>
-              <View style={styles.starsRow}>
-                <Icon name="star" size={12} color={theme.primary} />
-                <Icon name="star" size={12} color={theme.primary} />
-                <Icon name="star" size={12} color={theme.primary} />
-                <Icon name="star" size={12} color={theme.primary} />
-              </View>
-            </View>
-            <View style={styles.scoreProgressRow}>
-              <Text style={[styles.scoreValue, { color: theme.textMain }]}>80<Text style={styles.scoreUnit}>分</Text></Text>
-              <View style={[styles.progressBarTrack, { backgroundColor: theme.background }]}>
-                <View style={[styles.progressBarFill, { backgroundColor: theme.primary }]} />
-              </View>
-            </View>
-            <Text style={[styles.statusText, { color: theme.textSub }]}>整體良好，維持得真棒！</Text>
-          </View>
-
-          {/* 每日打卡 ── 輕量化垂直膠囊 */}
-          <View style={[styles.checkInCard, { backgroundColor: theme.cardBg }]}>
-            <MaterialIcon name="calendar-check" size={26} color={theme.textSub} />
-            <Text style={[styles.countText, { color: theme.textMain }]}>{`已打卡 ${checkInDays} 天`}</Text>
-            <TouchableOpacity 
-              style={[styles.checkInBtn, { backgroundColor: theme.primary }]} 
-              onPress={() => navigation.navigate('CalendarCheckIn')}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+      >
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="編輯暱稱與頭貼" onPress={()=>navigation.navigate('EditProfile')} style={{flexDirection:'row',alignItems:'center',gap:14,marginBottom:20}}>
+          {avatar?<Image source={{uri:avatar}} style={{width:60,height:60,borderRadius:30}}/>:<View style={{width:60,height:60,borderRadius:30,backgroundColor:theme.primarySoft,alignItems:'center',justifyContent:'center'}}><Icon name="person-outline" size={30} color={theme.primary}/></View>}
+          <View style={{flex:1}}><Text style={{color:theme.textMain,fontSize:21,fontWeight:'700'}} localize={false}><Text>你好，</Text><Text localize={false}>{nickname||tr('收納新手')}</Text></Text><Text style={{color:theme.textSub,marginTop:5,lineHeight:22}}>今天，讓家裡輕鬆一點</Text></View><Icon name="chevron-forward" size={18} color={theme.textSub}/>
+        </TouchableOpacity>
+        {dailyReminder && !checkedInToday && (
+          <TouchableOpacity
+            style={[
+              styles.smallCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+            onPress={() => navigation.navigate('CalendarCheckIn')}
+          >
+            <Text style={[styles.smallTitle, { color: theme.textMain }]}>
+              今天的整理提醒
+            </Text>
+            <Text style={[styles.smallDescription, { color: theme.textSub }]}>
+              每天留一點時間，完成一件整理小任務。
+            </Text>
+          </TouchableOpacity>
+        )}
+        <View style={styles.welcome}>
+          <View style={styles.greetingRow}>
+            
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="查看收納人格特質"
+              accessibilityHint="顯示你的收納人格與特質"
+              onPress={() => setShowPersona(true)}
+              style={[styles.badge, { backgroundColor: theme.accentSoft }]}
             >
-              <Text style={checkInBtnTextStyle}>打卡</Text>
+              <Text style={[styles.badgeText, { color: theme.accent }]}>
+                收納人格特質：{displayPersona(identity)}
+              </Text>
             </TouchableOpacity>
           </View>
+          <Text style={[styles.headline, { color: theme.textMain }]}>
+            讓整理，從一個角落開始
+          </Text>
+          <Text style={[styles.subtitle, { color: theme.textSub }]}>
+            依照你的收納偏好，找到適合自己的整理方式
+          </Text>
         </View>
-
-        {/* 主角：開始 AI 分析 ── 滿版拍立得觀景窗設計 */}
         <TouchableOpacity
-          style={styles.mainCard}
-          activeOpacity={0.88}
+          accessibilityLabel="拍照分析空間"
+          activeOpacity={0.9}
+          style={[
+            styles.hero,
+            { backgroundColor: theme.primarySoft, borderColor: theme.border },
+          ]}
           onPress={() => navigation.navigate('AIAnalysisCapture')}
         >
-          <View style={styles.imagePlaceholder}>
-            <Image 
-              source={{ uri: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?q=80&w=1000' }} 
-              style={styles.roomImg} 
-            />
-            {/* 玻璃半透明魔法鏡頭 */}
-            <View style={[styles.cameraOverlay, StyleSheet.absoluteFill]}>
-              <View style={styles.lensCircle}>
-                <Icon name="camera" size={32} color="#fff" />
-              </View>
-            </View>
-            
-            {/* 疊加在圖片上的漸層文字區塊 ── 已修正行內與字串樣式 */}
-            <View style={[styles.mainCardTextContainer, { backgroundColor: cardTextBgColor }]}>
-              <Text style={styles.mainCardTitle}>開始 AI 分析</Text>
-              <Text style={[styles.mainCardSub, { color: theme.primary }]}>拍張照，找回空間的魔法秩序 ✨</Text>
+          <View style={styles.heroBody}>
+            <Text style={[styles.overline, { color: theme.primary }]}>
+              AI 空間分析
+            </Text>
+            <Text style={[styles.heroTitle, { color: theme.textMain }]}>
+              拍下想整理的角落
+            </Text>
+            <Text style={[styles.heroDescription, { color: theme.textSub }]}>
+              辨識照片中的物品，查看整理建議。
+            </Text>
+            <View
+              style={[styles.heroAction, { backgroundColor: theme.primary }]}
+            >
+              <Icon name="camera-outline" size={20} color={theme.onPrimary} />
+              <Text style={[styles.heroActionText, { color: theme.onPrimary }]}>
+                開始整理
+              </Text>
             </View>
           </View>
         </TouchableOpacity>
+        {itemCount!==null&&<TouchableOpacity accessibilityRole="button" onPress={()=>navigation.navigate('ItemManagement')} style={{backgroundColor:theme.cardBg,borderColor:theme.border,borderWidth:1,borderRadius:20,padding:18,marginBottom:20}}><Text style={{color:theme.textMain,fontWeight:'700',fontSize:16}}>你的整理成果</Text><Text style={{color:theme.primary,marginTop:10,lineHeight:25}}>管理 {itemCount} 件物品 · 累積打卡 {checkInDays} 天</Text>{(pendingCount>0||sellingCount>0)&&<Text style={{color:theme.textSub,marginTop:6,lineHeight:24}}>{pendingCount} 件尚待定位 · {sellingCount} 件準備出售</Text>}</TouchableOpacity>}
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
+            今天的小步驟
+          </Text>
+        </View>
+        <View style={styles.cardRow}>
+          <TouchableOpacity
+            accessibilityLabel="每日任務"
+            style={[
+              styles.smallCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+            onPress={() => navigation.navigate('CalendarCheckIn')}
+          >
+            <View
+              style={[styles.smallIcon, { backgroundColor: theme.primarySoft }]}
+            >
+              <Icon name="leaf-outline" size={23} color={theme.primary} />
+            </View>
+            <Text style={[styles.smallTitle, { color: theme.textMain }]}>
+              每日任務
+            </Text>
+            <Text style={[styles.smallDescription, { color: theme.textSub }]}>
+              {checkedInToday ? '今日已完成' : '花 5 分鐘，選一個角落開始'}
+            </Text>
+            <View style={styles.cardFooter}>
+              <Text style={[styles.cardLink, { color: theme.primary }]}>
+                {checkedInToday ? '查看任務' : '選一個任務'}
+              </Text>
+              <Icon name="arrow-forward" size={17} color={theme.primary} />
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel="分析歷史紀錄"
+            style={[
+              styles.smallCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+            onPress={() => navigation.navigate('AIAnalysisHistory')}
+          >
+            <View
+              style={[styles.smallIcon, { backgroundColor: theme.accentSoft }]}
+            >
+              <Icon name="albums-outline" size={23} color={theme.accent} />
+            </View>
+            <Text style={[styles.smallTitle, { color: theme.textMain }]}>
+              整理紀錄
+            </Text>
+            <Text style={[styles.smallDescription, { color: theme.textSub }]}>
+              累積打卡 {checkInDays} 天
+            </Text>
+            <View style={styles.cardFooter}>
+              <Text style={[styles.cardLink, { color: theme.primary }]}>
+                回顧整理紀錄
+              </Text>
+              <Icon name="arrow-forward" size={17} color={theme.primary} />
+            </View>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
+            用不到的物品
+          </Text>
+        </View>
+        <View style={styles.cardRow}>
+          {[
+            {
+              title: '二手市集',
+              description: '買賣物品、訂單與交易訊息',
+              icon: 'storefront-outline',
+              screen: 'Market',
+            },
+            {
+              title: '捐贈與回收',
+              description: '找捐贈單位、回收與清運服務',
+              icon: 'leaf-outline',
+              screen: 'DonationRecycling',
+            },
+          ].map(entry => (
+            <TouchableOpacity
+              key={entry.screen}
+              accessibilityRole="button"
+              accessibilityLabel={entry.title}
+              style={[
+                styles.smallCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+              onPress={() =>
+                navigation.navigate(
+                  entry.screen,
+                  entry.screen === 'DonationRecycling'
+                    ? {
+                        itemCategory: undefined,
+                        condition: 'unsure',
+                        kind: 'all',
+                      }
+                    : undefined,
+                )
+              }
+            >
+              <Icon name={entry.icon} size={24} color={theme.primary} />
+              <Text style={[styles.smallTitle, { color: theme.textMain }]}>
+                {entry.title}
+              </Text>
+              <Text style={[styles.smallDescription, { color: theme.textSub }]}>
+                {entry.description}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </ScrollView>
-
-      {/* 底部導覽列 */}
-      <View style={[styles.bottomNav, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <TouchableOpacity style={styles.navItem}>
-          <Icon name="home" size={28} color={theme.primary} />
-          <Text style={activeNavTextStyle}>首頁</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.navItem}
-          onPress={() => navigation.navigate('ItemManagement')}
-        >
-          <MaterialIcon name="dots-grid" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>物品管理</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Market')}
-        >
-          <Icon name="storefront-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>二手拍賣</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Settings')}>
-          <Icon name="person-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>個人中心</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 右下角浮動 AI 小助手 */}
-      <TouchableOpacity 
-        style={[styles.fab, { backgroundColor: theme.primary }]}
-        onPress={() => navigation.navigate('AIChat')}
-      >
-        <MaterialIcon name="robot-happy-outline" size={36} color={fabIconColor} />
-      </TouchableOpacity>
+      <PersonaDetails
+        visible={showPersona}
+        identity={identity}
+        onClose={() => setShowPersona(false)}
+        onQuiz={() => {
+          setShowPersona(false);
+          navigation.navigate('Quiz');
+        }}
+      />
+      <DraggableAssistant><TouchableOpacity accessibilityRole="button" accessibilityLabel="開啟收納助理" onPress={()=>navigation.navigate('AIChat')} style={styles.assistantFloat}>
+        <View style={{backgroundColor:theme.cardBg,borderColor:theme.primary,borderWidth:1,borderRadius:14,paddingHorizontal:10,paddingVertical:7,alignItems:'center'}}><Text style={{color:theme.primary,fontSize:12,fontWeight:'700'}}>收納助理</Text><View style={{position:'absolute',bottom:-5,width:8,height:8,backgroundColor:theme.cardBg,borderRightWidth:1,borderBottomWidth:1,borderColor:theme.primary,transform:[{rotate:'45deg'}]}}/></View>
+        <BearMark size={62} top={6}/>
+      </TouchableOpacity></DraggableAssistant>
+      <BottomNav navigation={navigation} active="Home" />
     </SafeAreaView>
   );
 };
-
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
+  assistantFloat:{width:86,minHeight:104,alignItems:'center',justifyContent:'center',zIndex:20},
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 16,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center' },
-  iconBtn: { marginLeft: 15 },
-  scrollContent: { paddingHorizontal: 20, paddingBottom: 110 },
-  
-  // 歡迎語與身分標籤
-  welcomeSection: { marginBottom: 20, marginTop: 5 },
-  identityRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  userGreeting: { fontSize: 15, fontWeight: '500' },
-  identityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, marginLeft: 8 },
-  identityText: { fontSize: 11, fontWeight: '600' },
-  welcomeText: { fontSize: 26, fontWeight: '700', marginTop: 8, lineHeight: 34 },
-  
-  // 第一排卡片重組
-  topRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  scoreCard: {
-    width: '62%',
-    borderRadius: 20,
-    padding: 16,
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    elevation: 2, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }
   },
-  scoreHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  cardTitle: { fontSize: 14, fontWeight: '600' },
-  starsRow: { flexDirection: 'row' },
-  scoreProgressRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 4 },
-  scoreValue: { fontSize: 26, fontWeight: '700', marginRight: 10 },
-  scoreUnit: { fontSize: 12, fontWeight: '500' },
-  progressBarTrack: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { width: '80%', height: '100%', borderRadius: 3 },
-  statusText: { fontSize: 11, marginTop: 2 },
-  
-  checkInCard: {
-    width: '34%',
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 104,
+    maxWidth: 620,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  welcome: { marginBottom: 20 },
+  greetingRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+  },
+  greeting: { fontSize: 13 },
+  badge: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+  },
+  badgeText: { fontSize: 11, fontWeight: '600' },
+  headline: {
+    fontSize: 34,
+    lineHeight: 46,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginTop: 16,
+  },
+  subtitle: { fontSize: 13, lineHeight: 22, marginTop: 9 },
+  hero: { borderRadius: 28, borderWidth: 1, overflow: 'hidden' },
+  heroVisual: { height: 160 },
+  heroImage: { width: '100%', height: '100%' },
+  photoBadge: {
+    position: 'absolute',
+    left: 16,
+    top: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 20,
-    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  photoBadgeText: { fontSize: 11, fontWeight: '600' },
+  heroBody: { padding: 22 },
+  overline: { fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  heroTitle: { fontSize: 23, fontWeight: '700', marginTop: 9 },
+  heroDescription: { fontSize: 13, lineHeight: 22, marginTop: 8 },
+  heroAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderRadius: 15,
+    minHeight: 50,
+    marginTop: 20,
+    padding: 12,
+  },
+  heroActionText: { fontSize: 15, fontWeight: '700' },
+  sectionHeading: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    elevation: 2, shadowColor: '#000', shadowOpacity: 0.03, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }
+    gap: 8,
+    marginTop: 22,
+    marginBottom: 14,
   },
-  countText: { fontSize: 12, fontWeight: '600', marginVertical: 6 },
-  checkInBtn: { paddingHorizontal: 14, paddingVertical: 5, borderRadius: 12 },
-  checkInText: { fontWeight: '600', fontSize: 12 },
-
-  // AI 分析大卡片
-  mainCard: {
-    borderRadius: 24, overflow: 'hidden', marginBottom: 16,
-    elevation: 3, shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }
-  },
-  imagePlaceholder: { width: '100%', height: 220, position: 'relative' },
-  roomImg: { width: '100%', height: '100%' },
-  cameraOverlay: { justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.05)' },
-  lensCircle: { width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.25)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)' },
-  mainCardTextContainer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20 },
-  mainCardTitle: { fontSize: 20, fontWeight: '700', color: '#fff' },
-  mainCardSub: { fontSize: 13, marginTop: 4, fontWeight: '500' },
-
-  // 底部導覽列
-  bottomNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 8,
-
-    height: 70,
-    paddingTop: 10,
-    paddingBottom: 8,
-    paddingHorizontal: 12,
-
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  sectionTitle: { fontSize: 17, fontWeight: '700' },
+  sectionCaption: { fontSize: 11 },
+  cardRow: { flexDirection: 'row', gap: 12 },
+  smallCard: { flex: 1, padding: 16, borderWidth: 1, borderRadius: 22 },
+  smallIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    justifyContent: 'center',
     alignItems: 'center',
-
-    borderTopWidth: 1,
-    backgroundColor: '#FFFDF2',
   },
-  navItem: { alignItems: 'center' },
-  navText: { fontSize: 12, marginTop: 4 },
-  activeNavText: { fontSize: 12, marginTop: 4, fontWeight: '600' },
-
-  fab: {
-    position: 'absolute', right: 20, bottom: 125, width: 56, height: 56,
-    borderRadius: 28, justifyContent: 'center', alignItems: 'center',
-    elevation: 4, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }
-  }
+  smallTitle: { fontSize: 15, fontWeight: '700', marginTop: 12 },
+  smallDescription: { fontSize: 12, lineHeight: 19, marginTop: 7 },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 4,
+  },
+  cardLink: { fontSize: 11, fontWeight: '700' },
+  helperCard: {
+    padding: 18,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+  },
+  helperText: { flex: 1 },
+  footerNote: { fontSize: 11, textAlign: 'center', marginTop: 24 },
+  bottomNav: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  navItem: { flex: 1, alignItems: 'center', gap: 3, minHeight: 52 },
+  navIcon: {
+    width: 48,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navText: { fontSize: 10, fontWeight: '600' },
 });
-
 export default HomeScreen;

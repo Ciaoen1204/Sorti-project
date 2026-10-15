@@ -80,3 +80,31 @@ src/backend/.env
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# PWA build / local test tools
+/dist-pwa/
+/web/data.generated.ts
+/web/quiz.generated.json
+/.pwa-tools/
+/pwa-runtime/
+/playwright-report/
+/test-results/
+
+# Local image-generation weights (download via scripts/prepare-sd-preview.py)
+/src/backend/preview-models/
+
+/.local-tools/
+
+android/app/google-services.json
+*firebase-adminsdk*.json
+
+# User-provided books and local RAG indexes (backend only)
+/src/backend/rag_data/
+/tmp/pdfs/
+
+# Local runtime caches and packaged Android builds
+__pycache__/
+*.py[cod]
+*.log
+*.apk
+*.aab

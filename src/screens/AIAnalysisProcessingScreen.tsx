@@ -1,6 +1,8 @@
+import { LocalizedText as Text } from "../components/LocalizedUI";
+import { useScreenStyles } from '../design/useScreenStyles';
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View, Image } from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
+import { StyleSheet, ActivityIndicator, View, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useTheme } from '../context/ThemeContext';
 import { AI_ANALYSIS_ROOM_IMAGE } from './aiAnalysisData';
@@ -8,16 +10,19 @@ import { detectItemsFromPhoto } from '../services/aiApi';
 
 const AIAnalysisProcessingScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
   const photoUri = route?.params?.photoUri;
   const previewUri = photoUri ?? AI_ANALYSIS_ROOM_IMAGE;
-  const [statusText, setStatusText] = useState('正在偵測物品、分類空間與找出可優先整理的重點。');
+  const [statusText, setStatusText] = useState(
+    '正在偵測物品、分類空間與找出可優先整理的重點。',
+  );
 
   useEffect(() => {
     let active = true;
 
     const runDetection = async () => {
       try {
-        setStatusText('AI 正在分析畫面中的物品。');
+        setStatusText('先分析可見空間、動線與收納櫃，再辨識物品。');
         const response = await detectItemsFromPhoto(photoUri);
         if (!active) return;
 
@@ -27,8 +32,12 @@ const AIAnalysisProcessingScreen = ({ navigation, route }: any) => {
           detectionBoxes: response.detection_boxes,
           totalDetections: response.total_detections,
           modelName: response.model_name,
+          detectionNotice: response.notice,
+          aiStatus: response.ai_status,
+          spaceAnalysis: response.space_analysis,
+          spaceNotice: response.space_notice,
         });
-      } catch {
+      } catch (error) {
         if (!active) return;
         navigation.replace('AIAnalysisResult', {
           photoUri,
@@ -36,6 +45,8 @@ const AIAnalysisProcessingScreen = ({ navigation, route }: any) => {
           detectionBoxes: [],
           totalDetections: 0,
           modelName: 'best.pt',
+          detectionNotice:
+            error instanceof Error ? error.message : '辨識失敗，請重新拍攝。',
         });
       }
     };
@@ -48,43 +59,28 @@ const AIAnalysisProcessingScreen = ({ navigation, route }: any) => {
   }, [navigation, photoUri]);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.stage}>
-        <View style={styles.background}>
-          <Image source={{ uri: previewUri }} style={styles.backgroundImage} />
-          <View style={styles.scrim} />
-          <View style={styles.centerBlock}>
-            <Text style={styles.title}>分析中...</Text>
-            <Text style={styles.subtitle}>{statusText}</Text>
-          </View>
-          <View style={styles.progressRow}>
-            <View style={[styles.progressPill, styles.progressActive]}>
-              <Icon name="scan-outline" size={14} color="#333" />
-              <Text style={styles.progressTextActive}>偵測物品</Text>
-            </View>
-            <View style={styles.progressPill}>
-              <Text style={styles.progressText}>分類中</Text>
-            </View>
-            <View style={styles.progressPill}>
-              <Text style={styles.progressText}>產出建議</Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.actionArea}>
-        <TouchableOpacity style={[styles.disabledButton, { backgroundColor: theme.border }]} disabled>
-          <Text style={styles.disabledText}>開始分析</Text>
-        </TouchableOpacity>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <View style={styles.centerBlock}>
+        <Image source={{ uri: previewUri }} style={styles.preview} />
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={styles.title}>正在分析空間</Text>
+        <Text style={styles.subtitle}>{statusText}</Text>
       </View>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: { flex: 1 },
-  stage: { flex: 1 },
-  background: { flex: 1, justifyContent: 'space-between', position: 'relative', overflow: 'hidden' },
+  preview: { width: 200, height: 150, borderRadius: 12, marginBottom: 32 },
+  background: {
+    flex: 1,
+    justifyContent: 'space-between',
+    position: 'relative',
+    overflow: 'hidden',
+  },
   backgroundImage: {
     position: 'absolute',
     top: 0,
@@ -113,6 +109,7 @@ const styles = StyleSheet.create({
     color: '#000',
     textAlign: 'center',
     marginBottom: 12,
+    marginTop: 24,
   },
   subtitle: {
     fontSize: 15,

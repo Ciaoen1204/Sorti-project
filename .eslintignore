@@ -1,0 +1,4 @@
+dist-pwa/
+web/data.generated.ts
+pwa-runtime/
+release-builds/

@@ -1,362 +1,351 @@
-import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  TextInput,
-  Image,
-} from 'react-native';
+import { LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useTheme } from '../context/ThemeContext';
-import { useCart } from '../context/CartContext'; 
+import { useCart } from '../context/CartContext';
+import BottomNav from '../components/BottomNav';
+import MarketImage from '../components/MarketImage';
+import { loadProducts, type ProductQuery } from '../services/supabaseData';
+import {
+  currency,
+  listingCategories,
+  marketSorts,
+  priceRange,
+} from '../services/marketplace';
+import { useMarketPage } from '../services/useMarketPage';
 
-// 初始模擬二手商品數據
-const initialProducts = [
-  { id: '1', title: '九成新日式實木收納櫃', price: 1200, location: '台北市', img: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?q=80&w=500' },
-  { id: '2', title: '無印風簡約編織籃 (大)', price: 150, location: '高雄市', img: 'https://images.unsplash.com/photo-1531835551805-16d864c8d311?q=80&w=500' },
-  { id: '3', title: '北歐風金屬桌上置物架', price: 350, location: '台中市', img: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?q=80&w=500' },
-  { id: '4', title: '極簡白手提分格收納盒', price: 90, location: '新北市', img: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?q=80&w=500' },
-];
-
-const MarketScreen = ({ route, navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
+export default function MarketScreen({ navigation }: any) {
+  const { theme } = useTheme();
   const { cartItems } = useCart();
-  
-  // 將商品列表改為 state 管理，以便動態新增商品
-  const [products, setProducts] = useState(initialProducts);
-
-  // 完美修復版：將物件與導航方法都完整放進依賴陣列，徹底解決 react-hooks/exhaustive-deps 警告
+  const focused = useIsFocused();
+  const [query, setQuery] = useState(''),
+    [category, setCategory] = useState('全部');
+  const [sort, setSort] = useState<ProductQuery['sort']>('newest');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [min, setMin] = useState(''),
+    [max, setMax] = useState(''),
+    [filterError, setFilterError] = useState('');
+  const [range, setRange] = useState<{ minPrice?: number; maxPrice?: number }>(
+    {},
+  );
+  const result = useMarketPage(loadProducts, {
+    query,
+    category,
+    sort,
+    ...range,
+  });
+  const { retry } = result;
+  // Refresh when returning from publishing, checkout or listing management.
   useEffect(() => {
-    if (route.params?.newProduct) {
-      const { newProduct } = route.params;
-      
-      setProducts((prevProducts) => {
-        const isExist = prevProducts.some((p) => p.id === newProduct.id);
-        if (isExist) return prevProducts;
-        return [newProduct, ...prevProducts]; // 新商品排在最前面
-      });
-
-      // 清除參數，避免重複觸發
-      navigation.setParams({ newProduct: undefined });
-    }
-  }, [route.params, route.params?.newProduct, navigation]);
-
-  // 關鍵修正一：抽離底部工具列高亮文字的樣式
-  const activeNavTextStyle = [
-    styles.activeNavText,
-    { color: theme.primary }
-  ];
-
-  // 關鍵修正二：抽離「全部」高亮標籤的文字樣式，解決 eslint 行內樣式警告
-  const activeTagTextStyle = [
-    styles.activeTagText,
-    { color: isDarkMode ? '#1c1816' : '#333' }
-  ];
-
-  // 關鍵修正三：將浮動按鈕（FAB）Icon 的顏色抽離成變數
-  const fabIconColor = isDarkMode ? '#1c1816' : '#fff';
-
-  // 關鍵修正四：抽離購物車氣泡小紅點與內部文字樣式
-  const cartBadgeStyle = [
-    styles.cartBadge,
-    { backgroundColor: '#c94a4a' }
-  ];
-
-  const cartBadgeTextStyle = [
-    styles.cartBadgeText,
-    { color: '#fff' }
-  ];
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* 頂部導覽列 */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerLeftBtn} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-back" size={28} color={theme.textMain} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>二手拍賣</Text>
-        
-        <TouchableOpacity style={styles.cartBtn} onPress={() => navigation.navigate('Cart')}>
-          <Icon name="cart-outline" size={26} color={theme.textMain} />
-          {cartItems.length > 0 && (
-            <View style={cartBadgeStyle}>
-              <Text style={cartBadgeTextStyle}>{cartItems.length}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* 搜尋欄區塊 */}
-      <View style={styles.searchContainer}>
-        <View style={[styles.searchBar, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-          <Icon name="search-outline" size={20} color={theme.textSub} style={styles.searchIcon} />
-          <TextInput 
-            placeholder="搜尋想要的二手收納好物..." 
-            placeholderTextColor={isDarkMode ? '#6b5e56' : '#b5a4a4'}
-            style={[styles.searchInput, { color: theme.textMain }]}
-          />
-        </View>
-      </View>
-
-      {/* 主滾動區區塊 */}
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 分類標籤區塊 */}
-        <View style={styles.categoryRow}>
-          <TouchableOpacity style={[styles.categoryTag, { backgroundColor: theme.primary, borderColor: theme.primary }]}>
-            <Text style={activeTagTextStyle}>全部</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.categoryTag, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <Text style={[styles.categoryTagText, { color: theme.textSub }]}>大型家具</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.categoryTag, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <Text style={[styles.categoryTagText, { color: theme.textSub }]}>桌上收納</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.categoryTag, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <Text style={[styles.categoryTagText, { color: theme.textSub }]}>收納盒/籃</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 商品列表 - 橫向兩列單排排列 */}
-        <View style={styles.listContainer}>
-          {products.map((item) => (
-            <TouchableOpacity 
-              key={item.id} 
-              style={[styles.productCard, { backgroundColor: theme.cardBg }]}
-              onPress={() => navigation.navigate('ProductDetail', { product: item })}
-            >
-              {/* 左側商品圖片 */}
-              <Image source={{ uri: item.img }} style={styles.productImg} />
-              
-              {/* 右側商品資訊內容 */}
-              <View style={styles.productInfo}>
-                <Text style={[styles.productTitle, { color: theme.textMain }]} numberOfLines={2}>
-                  {item.title}
-                </Text>
-                
-                <View style={styles.priceRow}>
-                  <Text style={[styles.productPrice, { color: theme.primary }]}>${item.price}</Text>
-                  
-                  {/* 位置標籤 */}
-                  <View style={styles.locationTag}>
-                    <Icon name="location-outline" size={12} color={theme.textSub} style={styles.locIcon} />
-                    <Text style={[styles.productLocation, { color: theme.textSub }]}>{item.location}</Text>
-                  </View>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
-
-      {/* 底部工具列 */}
-      <View style={[styles.bottomNav, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Home')}>
-          <Icon name="home-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>首頁</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.navItem} 
-          onPress={() => navigation.navigate('ItemManagement')}
-        >
-          <MaterialIcon name="dots-grid" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>物品管理</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem}>
-          <Icon name="storefront" size={28} color={theme.primary} />
-          <Text style={activeNavTextStyle}>二手拍賣</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Settings')}>
-          <Icon name="person-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>個人中心</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* 右下角浮動上架按鈕 */}
-      <TouchableOpacity 
-        style={[styles.fab, { backgroundColor: theme.primary }]} 
-        onPress={() => navigation.navigate('AddProduct')}
+    if (focused) retry();
+  }, [focused, retry]);
+  const text = { color: theme.textMain };
+  const button = (label: string, action: () => void, selected = false) => (
+    <TouchableOpacity
+      accessibilityRole="button"
+      key={label}
+      accessibilityState={{ selected }}
+      onPress={action}
+      style={[
+        styles.button,
+        {
+          backgroundColor: selected ? theme.primary : theme.cardBg,
+          borderColor: theme.border,
+        },
+      ]}
+    >
+      <Text
+        style={{
+          color: selected ? theme.onPrimary : theme.textMain,
+          fontWeight: '600',
+        }}
       >
-        <Icon name="add" size={30} color={fabIconColor} />
-      </TouchableOpacity>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+  const header = (
+    <View style={styles.controls}>
+      <View
+        style={[
+          styles.search,
+          { backgroundColor: theme.cardBg, borderColor: theme.border },
+        ]}
+      >
+        <Icon name="search-outline" size={20} color={theme.textSub} />
+        <TextInput
+          style={[styles.input, text]}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="搜尋二手商品、品牌或關鍵字"
+          placeholderTextColor={theme.textSub}
+          returnKeyType="search"
+        />
+        {!!query && (
+          <TouchableOpacity
+            accessibilityLabel="清除搜尋"
+            onPress={() => setQuery('')}
+            style={styles.icon}
+          >
+            <Icon name="close" size={22} color={theme.textMain} />
+          </TouchableOpacity>
+        )}
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chips}
+      >
+        {['全部', ...listingCategories].map(c =>
+          button(c, () => setCategory(c), category === c),
+        )}
+      </ScrollView>
+      <View style={styles.row}>
+        {button('我的交易', () =>
+          navigation.navigate('MarketplaceWorkspace', {
+            role: 'buyer',
+            tab: 'orders',
+          }),
+        )}
+        {button('篩選與排序', () => setFiltersOpen(!filtersOpen), filtersOpen)}
+      </View>
+      {filtersOpen && (
+        <View
+          style={[
+            styles.filters,
+            { borderColor: theme.border, backgroundColor: theme.cardBg },
+          ]}
+        >
+          <ScrollView horizontal contentContainerStyle={styles.chips}>
+            {marketSorts.map(([v, label]) =>
+              button(label, () => setSort(v), sort === v),
+            )}
+          </ScrollView>
+          <Text style={text}>價格區間（NT$）</Text>
+          <View style={styles.row}>
+            <TextInput
+              accessibilityLabel="最低價格"
+              placeholder="最低價格"
+              placeholderTextColor={theme.textSub}
+              value={min}
+              onChangeText={setMin}
+              keyboardType="decimal-pad"
+              style={[styles.priceInput, text, { borderColor: theme.border }]}
+            />
+            <TextInput
+              accessibilityLabel="最高價格"
+              placeholder="最高價格"
+              placeholderTextColor={theme.textSub}
+              value={max}
+              onChangeText={setMax}
+              keyboardType="decimal-pad"
+              style={[styles.priceInput, text, { borderColor: theme.border }]}
+            />
+          </View>
+          {!!filterError && <Text style={text}>{filterError}</Text>}
+          <View style={styles.row}>
+            {button(
+              '套用價格',
+              () => {
+                try {
+                  setRange(priceRange(min, max));
+                  setFilterError('');
+                } catch (e) {
+                  setFilterError((e as Error).message);
+                }
+              },
+              true,
+            )}
+            {button('清除篩選', () => {
+              setMin('');
+              setMax('');
+              setRange({});
+              setCategory('全部');
+              setSort('newest');
+              setFilterError('');
+            })}
+          </View>
+        </View>
+      )}
+      <Text style={{ color: theme.textSub }}>
+        已載入 {result.value.length} 件 ·{' '}
+        {marketSorts.find(([v]) => v === sort)?.[1]}
+        {range.minPrice !== undefined || range.maxPrice !== undefined
+          ? ` · ${min || '0'}～${max || '不限'} 元`
+          : ''}
+      </Text>
+    </View>
+  );
+  return (
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
+      <View style={styles.top}>
+        <Text style={[styles.title, text]}>二手市集</Text>
+        <View style={styles.row}>
+          <TouchableOpacity
+            accessibilityLabel="訊息中心"
+            onPress={() =>
+              navigation.navigate('MarketplaceWorkspace', { tab: 'inbox' })
+            }
+            style={styles.icon}
+          >
+            <Icon name="chatbubbles-outline" size={24} color={theme.textMain} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            accessibilityLabel={`購物車，${cartItems.length} 件`}
+            onPress={() => navigation.navigate('Cart')}
+            style={styles.icon}
+          >
+            <Icon name="cart-outline" size={24} color={theme.textMain} />
+            {!!cartItems.length && (
+              <Text style={{ color: theme.primary }}>{cartItems.length}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+      <FlatList
+        refreshing={result.busy && !result.value.length}
+        onRefresh={result.retry}
+        data={result.value}
+        numColumns={2}
+        keyExtractor={p => p.id}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={header}
+        contentContainerStyle={styles.list}
+        columnWrapperStyle={styles.columns}
+        renderItem={({ item: p }) => (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${p.title}，${currency(p.price)}`}
+            onPress={() => navigation.navigate('ProductDetail', { product: p })}
+            style={[
+              styles.card,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <MarketImage uri={p.img} />
+            <View style={styles.cardText}>
+              <Text numberOfLines={2} style={[styles.name, text]}>
+                {p.title}
+              </Text>
+              <Text style={[styles.price, { color: theme.primary }]}>
+                {currency(p.price)}
+              </Text>
+              <Text style={{ color: theme.textSub }}>
+                {p.condition || '狀況未填'} · {p.allowMeetup ? '面交 ' : ''}
+                {p.allowShipping ? '寄送' : ''}
+              </Text>
+              <Text numberOfLines={1} style={{ color: theme.textSub }}>
+                {[p.category, p.location].filter(Boolean).join(' · ')}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        ListEmptyComponent={
+          !result.busy && !result.error ? (
+            <View style={styles.empty}>
+              <Icon name="search-outline" size={36} color={theme.textSub} />
+              <Text style={text}>
+                {query || category !== '全部' || Object.keys(range).length
+                  ? '沒有符合條件的商品，試試其他關鍵字或清除篩選。'
+                  : '目前沒有上架商品，成為第一位刊登者吧。'}
+              </Text>
+            </View>
+          ) : null
+        }
+        ListFooterComponent={
+          <View style={styles.empty}>
+            {result.busy && (
+              <>
+                <ActivityIndicator color={theme.primary} />
+                <Text style={text}>正在搜尋商品…</Text>
+              </>
+            )}
+            {!!result.error && (
+              <>
+                <Text style={text}>{result.error}</Text>
+                {button('重新載入', result.retry)}
+              </>
+            )}
+            {result.hasMore &&
+              !result.busy &&
+              !result.error &&
+              button('載入更多商品', result.more)}
+          </View>
+        }
+      />
+      <View style={styles.publishDock}>
+        {button('＋刊登商品', () => navigation.navigate('AddProduct'), true)}
+      </View>
+      <BottomNav navigation={navigation} active="Market" />
     </SafeAreaView>
   );
-};
-
+}
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
+  container: { flex: 1 },
+  top: {
     flexDirection: 'row',
-    height: 60,
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  headerLeftBtn: { 
-    zIndex: 10,
-    paddingVertical: 5,
-    paddingRight: 15,
-  },
-  headerTitle: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    textAlign: 'center',
-    fontSize: 22,
-    fontWeight: '600',
-    marginTop: 6,
-  },
-  cartBtn: { 
-    padding: 4,
-    position: 'relative',
-  },
-  cartBadge: {
-    position: 'absolute',
-    right: -4,
-    top: -2,
-    borderRadius: 9,
-    width: 18,
-    height: 18,
-    justifyContent: 'center',
     alignItems: 'center',
-  },
-  cartBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  searchContainer: {
     paddingHorizontal: 16,
-    marginVertical: 10,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-    height: 45,
-    paddingHorizontal: 12,
-  },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15 },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 110, 
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    marginBottom: 20,
-    marginTop: 5,
-  },
-  categoryTag: {
-    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
   },
-  categoryTagText: { fontSize: 14 },
-  activeTagText: { fontSize: 14, fontWeight: '600' },
-  listContainer: {
-    width: '100%',
-  },
-  productCard: {
-    flexDirection: 'row', 
-    borderRadius: 16,
-    marginBottom: 12,
-    padding: 12, 
+  title: { fontSize: 24, fontWeight: '700' },
+  row: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+  icon: {
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  productImg: {
-    width: 85, 
-    height: 85,
-    borderRadius: 12,
-    backgroundColor: '#f5f5f5',
-    resizeMode: 'cover',
-  },
-  productInfo: {
-    flex: 1,
-    paddingLeft: 14,
-    justifyContent: 'space-between',
-    height: 85, 
-  },
-  productTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    lineHeight: 20,
-    marginTop: 2,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  productPrice: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  locationTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locIcon: {
-    marginRight: 2,
-  },
-  productLocation: {
-    fontSize: 12,
-  },
-  bottomNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 8,
-
-    height: 70,
-    paddingTop: 10,
-    paddingBottom: 8,
-    paddingHorizontal: 12,
-
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-
-    borderTopWidth: 1,
-    backgroundColor: '#FFFDF2',
-  },
-  navItem: { alignItems: 'center' },
-  navText: { fontSize: 12, marginTop: 4 },
-  activeNavText: {
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '600',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 90, 
-    width: 56,
-    height: 56,
-    borderRadius: 28,
     justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  controls: { gap: 12, marginBottom: 16 },
+  search: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
     alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    paddingLeft: 12,
+  },
+  input: { flex: 1, minHeight: 50, fontSize: 14, paddingHorizontal: 8 },
+  chips: { gap: 8 },
+  button: {
+    minHeight: 44,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  publishDock: {
+    alignItems: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  list: { padding: 16, paddingBottom: 24 },
+  columns: { gap: 12 },
+  card: {
+    flex: 1,
+    maxWidth: '48.5%',
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  cardText: { padding: 10, gap: 6 },
+  name: { fontSize: 15, lineHeight: 22, minHeight: 44, fontWeight: '600' },
+  price: { fontSize: 19, fontWeight: '700' },
+  empty: { paddingVertical: 24, alignItems: 'center', gap: 12 },
+  filters: { padding: 12, gap: 12, borderWidth: 1, borderRadius: 14 },
+  priceInput: {
+    flex: 1,
+    minWidth: 100,
+    minHeight: 48,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 10,
   },
 });
-
-export default MarketScreen;

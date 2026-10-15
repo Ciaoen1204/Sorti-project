@@ -1,319 +1,664 @@
-import React, { useState } from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  Image,
-  Alert,
-} from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { LocalizedAlert as Alert, LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Modal, PermissionsAndroid, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
+import BottomNav from '../components/BottomNav';
 import { useTheme } from '../context/ThemeContext';
-// 1. 導入原生相機啟動方法
-import { launchCamera } from 'react-native-image-picker';
+import { launchCamera, launchImageLibrary } from 'react-native-image-picker';
+import {
+  createRemoteItem,
+  deleteRemoteItem,
+  itemDispositionLabels,
+  loadRemoteItems,
+  setItemDisposition,
+  setItemStorageLocation,
+} from '../services/supabaseData';
+import type { ItemDisposition } from '../services/supabaseData';
+import {
+  itemImportLabel,
+  itemPlacementLabel,
+} from '../services/inventoryDetails';
 
-// 模擬 AI 偵測並匯入的收納物品數據
-const mockItems = [
-  { id: '1', name: '日式棉麻大容量收納袋', category: '收納盒/籃', status: '已定位', location: '主臥衣櫃上層', time: '10分鐘前 AI 偵測', img: 'https://images.unsplash.com/photo-1531835551805-16d864c8d311?q=80&w=300' },
-  { id: '2', name: '透明壓克力化妝品置物架', category: '桌上收納', status: '待整理', location: '尚未指定', time: '剛剛拍照匯入', img: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?q=80&w=300' },
-  { id: '3', name: '北歐風牛皮紙多功能收納盒', category: '收納盒/籃', status: '已定位', location: '客廳電視櫃', time: '昨天 AI 偵測', img: 'https://images.unsplash.com/photo-1588854337236-6889d631faa8?q=80&w=300' },
-  { id: '4', name: '實木防滑西裝衣架 (10入)', category: '大型衣架', status: '已定位', location: '玄關衣帽間', time: '3天前 AI 偵測', img: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?q=80&w=300' },
-];
-
-const ItemManagementScreen = ({ navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
-  const [activeTab, setActiveTab] = useState('全部');
-
-  // 關鍵修正一：動態抽離導覽高亮樣式，避開行內樣式警告
-  const activeNavTextStyle = [
-    styles.activeNavText,
-    { color: theme.primary }
+export default function ItemManagementScreen({ navigation }: any) {
+  const { theme,isDarkMode } = useTheme();
+  const focused = useIsFocused();
+  const [items, setItems] = useState<
+    Awaited<ReturnType<typeof loadRemoteItems>>
+  >([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const [category, setCategory] = useState('全部');
+  const [status, setStatus] = useState('all');
+  const [adding, setAdding] = useState(false);
+  const [filtering, setFiltering] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<
+    (typeof items)[number] | null
+  >(null);
+  const [name, setName] = useState('');
+  const [newCategory, setNewCategory] = useState('生活用品');
+  const [quantity, setQuantity] = useState('1');
+  const [photo, setPhoto] = useState<string | undefined>();
+  const [mutationBusy, setMutationBusy] = useState(false);
+  const [placement, setPlacement] = useState('全部');
+  const [locationTarget, setLocationTarget] = useState<
+    (typeof items)[number] | null
+  >(null);
+  const [location, setLocation] = useState('');
+  const categories = [
+    ...new Set([
+      '文具',
+      '3C',
+      '書籍',
+      '生活用品',
+      '美妝',
+      ...items.map(item => item.category),
+    ]),
   ];
-
-  // 2. 新增啟動相機拍照功能
-  const handleCameraLaunch = async () => {
-    const options = {
-      mediaType: 'photo' as const,
-      cameraType: 'back' as const,
-      saveToPhotos: true, // 拍照後自動儲存至手機相簿
-      quality: 0.8 as const,
-    };
-
-    launchCamera(options, (response) => {
-      if (response.didCancel) {
-        console.log('使用者取消了拍照');
-      } else if (response.errorCode) {
-        console.log('相機啟動出錯: ', response.errorMessage);
-        Alert.alert('提示', '無法啟動相機，請檢查手機權限設定。');
-      } else if (response.assets && response.assets.length > 0) {
-        const sourceUri = response.assets[0].uri;
-        console.log('拍照成功，相片本機路徑為：', sourceUri);
-        
-        // 拍照成功後的魔法提示
-        Alert.alert(
-          '拍照成功 ✨',
-          '已成功捕捉收納好物！正在等待 AI 核心進行影像識別與空間歸類分析...',
-          [{ text: '太棒了' }]
+  const visible = items.filter(
+    item =>
+      (item.name + item.category + (item.storageLocation || ''))
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()) &&
+      (category === '全部' || item.category === category) &&
+      (status === 'all' || item.disposition === status) &&
+      (placement === '全部' ||
+        itemPlacementLabel(item.storageLocation) === placement),
+  );
+  async function saveLocation() {
+    if (!locationTarget || mutationBusy) return;
+    setMutationBusy(true);
+    try {
+      const value = await setItemStorageLocation(locationTarget.id, location);
+      setItems(rows =>
+        rows.map(item =>
+          item.id === locationTarget.id
+            ? { ...item, storageLocation: value }
+            : item,
+        ),
+      );
+      setLocationTarget(null);
+    } catch (reason) {
+      Alert.alert(
+        '儲存失敗',
+        reason instanceof Error ? reason.message : '請稍後重試。',
+      );
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+  async function pickPhoto(useCamera = false) {
+    try {
+      if (
+        useCamera &&
+        Platform.OS === 'android' &&
+        !(await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA))
+      ) {
+        const permission = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
         );
+        if (permission !== PermissionsAndroid.RESULTS.GRANTED)
+          throw new Error('請允許相機權限，或改從相簿選擇照片。');
       }
+      const selected = await (useCamera ? launchCamera : launchImageLibrary)({
+        mediaType: 'photo',
+        selectionLimit: 1,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        quality: 0.8,
+      });
+      if (selected.errorCode)
+        throw new Error(selected.errorMessage || '無法開啟相簿。');
+      if (selected.assets?.[0]?.uri) setPhoto(selected.assets[0].uri);
+    } catch (reason) {
+      Alert.alert(
+        '照片選取失敗',
+        reason instanceof Error ? reason.message : '請稍後重試。',
+      );
+    }
+  }
+  async function add() {
+    if (mutationBusy) return;
+    setMutationBusy(true);
+    try {
+      await createRemoteItem({
+        name,
+        category: newCategory,
+        quantity: Number(quantity),
+        photoUri: photo,
+      });
+      setAdding(false);
+      setName('');
+      setNewCategory('生活用品');
+      setQuantity('1');
+      setPhoto(undefined);
+      setCategory('全部');
+      setStatus('all');
+      setPlacement('全部');
+      setQuery('');
+      setRefresh(value => value + 1);
+    } catch (reason) {
+      Alert.alert(
+        '新增失敗',
+        reason instanceof Error ? reason.message : '請稍後重試。',
+      );
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+  function remove(item: (typeof items)[number]) {
+    Alert.alert(
+      `刪除「${item.name}」？`,
+      '將從物品管理移除，分析紀錄與已刊登商品會保留。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '確認刪除',
+          style: 'destructive',
+          onPress: async () => {
+            if (mutationBusy) return;
+            setMutationBusy(true);
+            try {
+              await deleteRemoteItem(item.id);
+              setItems(rows => rows.filter(row => row.id !== item.id));
+            } catch (reason) {
+              Alert.alert(
+                '刪除失敗',
+                reason instanceof Error ? reason.message : '請稍後重試。',
+              );
+            } finally {
+              setMutationBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  }
+  async function changeStatus(value: ItemDisposition) {
+    if (!statusTarget || mutationBusy) return;
+    setMutationBusy(true);
+    try {
+      await setItemDisposition(statusTarget.id, value);
+      setItems(rows =>
+        rows.map(row =>
+          row.id === statusTarget.id ? { ...row, disposition: value } : row,
+        ),
+      );
+      setStatusTarget(null);
+    } catch (reason) {
+      Alert.alert(
+        '儲存失敗',
+        reason instanceof Error ? reason.message : '請稍後重試。',
+      );
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+  useEffect(() => {
+    if (!focused) return;
+    let active = true;
+    setBusy(true);
+    setError('');
+    loadRemoteItems()
+      .then(value => {
+        if (active) setItems(value);
+      })
+      .catch(reason => {
+        if (active)
+          setError(reason instanceof Error ? reason.message : '無法載入物品');
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [focused, refresh]);
+  const button = (label: string, action: () => void) => (
+    <TouchableOpacity
+      accessibilityRole="button"
+      style={[styles.button, { borderColor: theme.border }]}
+      onPress={action}
+      disabled={mutationBusy}
+    >
+      <Text style={{ color: theme.primary }}>{label}</Text>
+    </TouchableOpacity>
+  );
+  const dispose = (
+    item: (typeof items)[number],
+    condition: 'usable' | 'broken',
+    kind: 'donation' | 'recycle',
+  ) =>
+    navigation.navigate('DonationRecycling', {
+      itemCategory: item.category + ' ' + item.name,
+      condition,
+      kind,
     });
-  };
-
+  const choose = (item: (typeof items)[number]) =>
+    Alert.alert('物品目前的狀況', item.name, [
+      {
+        text: '還能使用',
+        onPress: () =>
+          Alert.alert('選擇處理方式', item.name, [
+            {
+              text: '出售',
+              onPress: () =>
+                navigation.navigate('AddProduct', {
+                  itemName: item.name,
+                  itemCategory: item.category,
+                  itemImageUri: item.imageUri,
+                }),
+            },
+            {
+              text: '捐贈',
+              onPress: () => dispose(item, 'usable', 'donation'),
+            },
+            {
+              text: '回收／清運',
+              onPress: () => dispose(item, 'usable', 'recycle'),
+            },
+          ]),
+      },
+      {
+        text: '已損壞／無法使用',
+        onPress: () => dispose(item, 'broken', 'recycle'),
+      },
+      { text: '取消', style: 'cancel' },
+    ]);
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* 頂部導覽列 */}
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerLeftBtn} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-back" size={28} color={theme.textMain} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>物品管理</Text>
-        
-        {/* 3. 修改：相機按鈕點擊時觸發原生拍照功能 */}
-        <TouchableOpacity style={styles.scanBtn} onPress={handleCameraLaunch}>
-          <Icon name="camera-outline" size={26} color={theme.textMain} />
-        </TouchableOpacity>
+        {button('返回', () => navigation.goBack())}
+        <Text style={[styles.title, { color: theme.textMain }]}>物品管理</Text>
+        {button('＋ 新增', () => setAdding(true))}
       </View>
-
-      {/* 快捷篩選標籤 */}
-      <View style={styles.filterContainer}>
-        {['全部', '待整理', '已定位'].map((tab) => {
-          const isSelected = activeTab === tab;
-          
-          // 關鍵修正二：抽離篩選標籤的行內動態樣式
-          const tagStyle = [
-            styles.filterTag,
-            { backgroundColor: theme.cardBg, borderColor: theme.border },
-            isSelected ? { backgroundColor: theme.primary, borderColor: theme.primary } : null
-          ];
-
-          const tagTextStyle = [
-            styles.filterTagText,
-            { color: theme.textSub },
-            isSelected ? [styles.activeFilterTagText, { color: isDarkMode ? '#1c1816' : '#333' }] : null
-          ];
-
-          return (
+      <ScrollView contentContainerStyle={styles.content}>
+        {button('拍照辨識並匯入物品', () =>
+          navigation.navigate('AIAnalysisCapture'),
+        )}
+        {button('捐贈與回收', () =>
+          navigation.navigate('DonationRecycling', {
+            condition: 'unsure',
+            kind: 'all',
+            itemCategory: undefined,
+          }),
+        )}
+        <TextInput
+          accessibilityLabel="搜尋物品"
+          placeholder="搜尋物品"
+          placeholderTextColor={theme.textSub}
+          value={query}
+          onChangeText={setQuery}
+          style={[
+            styles.search,
+            {
+              color: theme.textMain,
+              borderColor: theme.border,
+              backgroundColor: theme.cardBg,
+            },
+          ]}
+        />
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabs}
+        >
+          {['全部', ...categories].map(value => (
             <TouchableOpacity
-              key={tab}
-              style={tagStyle}
-              onPress={() => setActiveTab(tab)}
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: category === value }}
+              onPress={() => setCategory(value)}
+              style={[
+                styles.tab,
+                {
+                  backgroundColor:
+                    category === value ? (isDarkMode?theme.primary:theme.primarySoft) : theme.cardBg,
+                  borderColor: theme.border,
+                },
+              ]}
             >
-              <Text style={tagTextStyle}>
-                {tab}
+              <Text
+                style={{
+                  color: category === value ? (isDarkMode?theme.onPrimary:theme.primary) : theme.textMain,
+                  fontWeight: category === value ? '700' : '400',
+                }}
+              >
+                {value}
               </Text>
             </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* 物品清單區塊 */}
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {mockItems
-          .filter(item => activeTab === '全部' || item.status === activeTab)
-          .map((item) => {
-            const isAlert = item.status === '待整理';
-
-            // 關鍵修正三：抽離物品卡片中的 Badge 狀態動態樣式，徹底消除 ESLint 行內樣式警告
-            const badgeStyle = [
-              styles.statusBadge,
-              isAlert 
-                ? { backgroundColor: isDarkMode ? 'rgba(201, 74, 74, 0.15)' : '#fff1f1' }
-                : { backgroundColor: isDarkMode ? 'rgba(82, 155, 119, 0.15)' : '#f0f7f4' }
-            ];
-
-            const statusTextStyle = [
-              styles.statusText,
-              isAlert 
-                ? { color: '#c94a4a' } 
-                : { color: '#529b77' }
-            ];
-
-            return (
-              <View key={item.id} style={[styles.itemCard, { backgroundColor: theme.cardBg }]}>
-                <Image source={{ uri: item.img }} style={styles.itemImg} />
-                
-                <View style={styles.itemInfo}>
-                  <View style={styles.titleRow}>
-                    <Text style={[styles.itemName, { color: theme.textMain }]} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    
-                    {/* 使用乾淨無警告的樣式變數 */}
-                    <View style={badgeStyle}>
-                      <Text style={statusTextStyle}>
-                        {item.status}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={[styles.itemCategory, { color: theme.textSub }]}>分類：{item.category}</Text>
-                  
-                  <View style={styles.locationRow}>
-                    <Icon name="location-outline" size={14} color={theme.textSub} style={styles.locIcon} />
-                    <Text style={[styles.locationText, { color: theme.textMain }]} numberOfLines={1}>
-                      位置：{item.location}
-                    </Text>
-                  </View>
-
-                  <Text style={[styles.timeText, { color: theme.textSub }]}>{item.time}</Text>
+          ))}
+        </ScrollView>
+        <View style={styles.actions}>
+          {['全部', '待整理', '已定位'].map(value => (
+            <TouchableOpacity
+              key={value}
+              accessibilityRole="button"
+              accessibilityLabel={`整理進度：${value}`}
+              accessibilityState={{ selected: placement === value }}
+              onPress={() => setPlacement(value)}
+              style={[
+                styles.tab,
+                {
+                  backgroundColor:
+                    placement === value ? (isDarkMode?theme.primary:theme.primarySoft) : theme.cardBg,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Text style={{ color: placement === value ? (isDarkMode?theme.onPrimary:theme.primary) : theme.textMain,fontWeight:placement === value ? '700':'400' }}>{value}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        {button(
+          `篩選狀態：${
+            status === 'all'
+              ? '全部'
+              : itemDispositionLabels[status as ItemDisposition]
+          }`,
+          () => setFiltering(true),
+        )}
+        {busy && <ActivityIndicator color={theme.primary} />}
+        {!!error && (
+          <View>
+            <Text style={{ color: theme.textMain }}>{error}</Text>
+            {button('重新載入', () => setRefresh(refresh + 1))}
+          </View>
+        )}
+        {visible.map(item => (
+          <View
+            key={item.id}
+            style={[
+              styles.card,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <View style={styles.itemRow}>
+              {item.imageUri ? (
+                <Image
+                  source={{ uri: item.imageUri }}
+                  accessibilityLabel={`${item.name}物品照片`}
+                  resizeMode="contain"
+                  style={styles.photo}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.photo,
+                    styles.placeholder,
+                    { backgroundColor: theme.primarySoft },
+                  ]}
+                >
+                  <Text style={{ color: theme.textSub }}>物品</Text>
                 </View>
-
-                <TouchableOpacity style={styles.moreBtn}>
-                  <Icon name="ellipsis-vertical" size={18} color={theme.textSub} />
-                </TouchableOpacity>
+              )}
+              <View style={styles.itemInfo}>
+                <Text style={[styles.title, { color: theme.textMain }]} localize={false}>
+                  {item.name}
+                </Text>
+                <Text style={{ color: theme.textSub }}>
+                  分類：{item.category} · {item.quantity} 件
+                </Text>
               </View>
-            );
-          })}
+              <TouchableOpacity
+                disabled={mutationBusy}
+                onPress={() => setStatusTarget(item)}
+                accessibilityLabel={`管理狀態：${item.name}`}
+                style={[
+                  styles.badge,
+                  {
+                    backgroundColor:
+                      item.disposition === 'keep'
+                        ? '#afd2b4'
+                        : item.disposition === 'discard'
+                        ? '#efb2b7'
+                        : '#e6d8a3',
+                  },
+                ]}
+              >
+                <Text style={styles.badgeText}>
+                  {itemDispositionLabels[item.disposition]}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {item.disposition === 'sell' && (
+              <Text style={{ color: theme.textSub }}>
+                待售是管理標記，出售前請另外刊登商品。
+              </Text>
+            )}
+            <Text style={{ color: theme.textSub }}>
+              {itemPlacementLabel(item.storageLocation)} · 存放位置：
+              {item.storageLocation || '尚未指定'}
+            </Text>
+            {!!itemImportLabel(item.created_at, item.source) && (
+              <Text style={{ color: theme.textSub }}>
+                {itemImportLabel(item.created_at, item.source)}
+              </Text>
+            )}
+            <View style={styles.actions}>
+              {button('設定存放位置', () => {
+                setLocationTarget(item);
+                setLocation(item.storageLocation || '');
+              })}
+              {button('處理物品', () => choose(item))}
+              {button('刪除物品', () => remove(item))}
+            </View>
+          </View>
+        ))}
+        {!busy && !error && !!items.length && !visible.length && (
+          <Text style={{ color: theme.textSub }}>
+            沒有符合搜尋或篩選條件的物品。
+          </Text>
+        )}
+        {!busy && !error && !items.length && (
+          <View>
+            <Text style={{ color: theme.textSub }}>
+              尚未加入物品。可手動新增，或拍照分析後匯入。
+            </Text>
+            {button('拍照分析', () => navigation.navigate('AIAnalysisCapture'))}
+          </View>
+        )}
       </ScrollView>
-
-      {/* 底部工具列 */}
-      <View style={[styles.bottomNav, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Home')}>
-          <Icon name="home-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>首頁</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem}>
-          <MaterialIcon name="dots-grid" size={28} color={theme.primary} />
-          <Text style={activeNavTextStyle}>物品管理</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Market')}>
-          <Icon name="storefront-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>二手拍賣</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.navItem} onPress={() => navigation.navigate('Settings')}>
-          <Icon name="person-outline" size={28} color={theme.textSub} />
-          <Text style={[styles.navText, { color: theme.textSub }]}>個人中心</Text>
-        </TouchableOpacity>
-      </View>
+      <Modal
+        visible={adding}
+        animationType="slide"
+        onRequestClose={() => {
+          if (!mutationBusy) setAdding(false);
+        }}
+      >
+        <SafeAreaView
+          style={[styles.container, { backgroundColor: theme.background }]}
+        >
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={[styles.title, { color: theme.textMain }]}>
+              新增物品
+            </Text>
+            <Text style={{ color: theme.textMain }}>物品名稱</Text>
+            <TextInput
+              accessibilityLabel="物品名稱"
+              value={name}
+              onChangeText={setName}
+              maxLength={60}
+              editable={!mutationBusy}
+              style={[
+                styles.search,
+                { color: theme.textMain, borderColor: theme.border },
+              ]}
+            />
+            <Text style={{ color: theme.textMain }}>分類</Text>
+            <TextInput
+              accessibilityLabel="分類"
+              value={newCategory}
+              onChangeText={setNewCategory}
+              maxLength={30}
+              editable={!mutationBusy}
+              style={[
+                styles.search,
+                { color: theme.textMain, borderColor: theme.border },
+              ]}
+            />
+            <Text style={{ color: theme.textMain }}>數量</Text>
+            <TextInput
+              accessibilityLabel="數量"
+              value={quantity}
+              onChangeText={setQuantity}
+              keyboardType="number-pad"
+              editable={!mutationBusy}
+              style={[
+                styles.search,
+                { color: theme.textMain, borderColor: theme.border },
+              ]}
+            />
+            {!!photo && (
+              <Image
+                source={{ uri: photo }}
+                style={styles.formPhoto}
+                resizeMode="contain"
+              />
+            )}
+            {button('拍攝物品照片（選填）', () => pickPhoto(true))}
+            {button('從相簿選擇照片（選填）', () => pickPhoto())}
+            {!!photo && button('移除照片', () => setPhoto(undefined))}
+            {button(mutationBusy ? '儲存中…' : '儲存物品', add)}
+            {button('取消新增', () => {
+              setAdding(false);
+              setPhoto(undefined);
+            })}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+      <Modal
+        visible={!!locationTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!mutationBusy) setLocationTarget(null);
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.cardBg }]}>
+            <Text style={[styles.title, { color: theme.textMain }]}>
+              設定存放位置：{locationTarget?.name}
+            </Text>
+            <Text style={{ color: theme.textSub }}>
+              填入位置後標記為已定位；清空則回到待整理。
+            </Text>
+            <TextInput
+              accessibilityLabel="存放位置"
+              value={location}
+              onChangeText={setLocation}
+              maxLength={100}
+              editable={!mutationBusy}
+              placeholder="例如：主臥衣櫃上層"
+              placeholderTextColor={theme.textSub}
+              style={[
+                styles.search,
+                { color: theme.textMain, borderColor: theme.border },
+              ]}
+            />
+            {button(mutationBusy ? '儲存中…' : '儲存位置', saveLocation)}
+            {button('取消設定位置', () => setLocationTarget(null))}
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={filtering || !!statusTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!mutationBusy) {
+            setFiltering(false);
+            setStatusTarget(null);
+          }
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: theme.cardBg }]}>
+            <Text style={[styles.title, { color: theme.textMain }]}>
+              {statusTarget ? `管理狀態：${statusTarget.name}` : '篩選物品狀態'}
+            </Text>
+            {!statusTarget &&
+              button('全部狀態', () => {
+                setStatus('all');
+                setFiltering(false);
+              })}
+            {(
+              Object.entries(itemDispositionLabels) as [
+                ItemDisposition,
+                string,
+              ][]
+            ).map(([value, label]) => (
+              <View key={value}>
+                {button(label, () => {
+                  if (statusTarget) changeStatus(value);
+                  else {
+                    setStatus(value);
+                    setFiltering(false);
+                  }
+                })}
+              </View>
+            ))}
+            {button('取消', () => {
+              setFiltering(false);
+              setStatusTarget(null);
+            })}
+          </View>
+        </View>
+      </Modal>
+      <BottomNav navigation={navigation} active="ItemManagement" />
     </SafeAreaView>
   );
-};
-
+}
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
-    height: 60,
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    gap: 8,
+    padding: 16,
   },
-  headerLeftBtn: { zIndex: 10, paddingVertical: 5, paddingRight: 15 },
-  headerTitle: {
-    position: 'absolute', left: 0, right: 0, textAlign: 'center',
-    fontSize: 22, fontWeight: '600', marginTop: 6,
-  },
-  scanBtn: { padding: 4 },
-  filterContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginVertical: 12,
-  },
-  filterTag: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
-    borderWidth: 1,
-  },
-  filterTagText: { fontSize: 14 },
-  activeFilterTagText: { fontWeight: '600' },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 110,
-  },
-  itemCard: {
-    flexDirection: 'row',
-    borderRadius: 16,
+  title: { fontSize: 20, fontWeight: '600' },
+  content: { padding: 16, gap: 16, paddingBottom: 32 },
+  button: {
     padding: 12,
-    marginBottom: 12,
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 10,
     alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  itemImg: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    backgroundColor: '#f5f5f5',
-  },
-  itemInfo: {
-    flex: 1,
-    paddingLeft: 14,
     justifyContent: 'center',
   },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-    paddingRight: 10,
-  },
-  itemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    maxWidth: '70%',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  statusText: { fontSize: 11, fontWeight: '600' },
-  itemCategory: {
-    fontSize: 13,
-    marginBottom: 4,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  locIcon: { marginRight: 3 },
-  locationText: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  timeText: {
-    fontSize: 11,
-  },
-  moreBtn: {
-    padding: 8,
-  },
-  bottomNav: {
+  search: { padding: 12, minHeight: 48, borderWidth: 1, borderRadius: 12 },
+  card: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 12 },
+  photo: { width: 96, height: 96, borderRadius: 12 },
+  formPhoto: { width: '100%', height: 200, borderRadius: 12 },
+  tabs: { gap: 8 },
+  tab: { borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+  itemRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  itemInfo: { flex: 1, paddingTop: 22, gap: 8 },
+  badge: {
     position: 'absolute',
-    left: 0,
     right: 0,
-    bottom: 8,
-
-    height: 70,
-    paddingTop: 10,
-    paddingBottom: 8,
+    top: 0,
+    borderRadius: 20,
     paddingHorizontal: 12,
-
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-
-    borderTopWidth: 1,
-    backgroundColor: '#FFFDF2',
+    paddingVertical: 5,
   },
-  navItem: { alignItems: 'center' },
-  navText: { fontSize: 12, marginTop: 4 },
-  activeNavText: {
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '600',
-  }
+  badgeText: { color: '#243026', fontSize: 12 },
+  placeholder: { justifyContent: 'center', alignItems: 'center' },
+  actions: { flexDirection: 'row', gap: 12 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: '#0008',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: { padding: 20, borderRadius: 16, gap: 12 },
 });
-
-export default ItemManagementScreen;

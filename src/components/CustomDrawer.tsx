@@ -1,17 +1,27 @@
+import SortiBrand from './SortiBrand';
+import { LocalizedAlert as Alert, LocalizedText as Text, LocalizedTouchableOpacity as TouchableOpacity } from "./LocalizedUI";
+import { disableNativePush } from '../services/nativePush';
+import { useScreenStyles } from '../design/useScreenStyles';
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
+import { supabase } from '../lib/supabase';
 import { DrawerContentScrollView } from '@react-navigation/drawer';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
 
 const CustomDrawer = (props: any) => {
   const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       <DrawerContentScrollView {...props}>
         {/* 選單頂部選單按鈕 */}
-        <View style={[styles.menuHeader, { borderBottomColor: theme.border }]}>
+        <View style={[styles.menuHeader, { borderBottomColor: theme.border,flexDirection:'row',alignItems:'center',justifyContent:'space-between' }]}>
+          <SortiBrand compact/>
           <TouchableOpacity onPress={() => props.navigation.closeDrawer()}>
             <Icon name="menu" size={30} color={theme.textMain} />
           </TouchableOpacity>
@@ -19,65 +29,98 @@ const CustomDrawer = (props: any) => {
 
         {/* 渲染選單項目 */}
         <View style={styles.drawerList}>
-          <DrawerItem 
-            label="首頁" 
-            icon="home-outline" 
+          <DrawerItem
+            label="首頁"
+            icon="home-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('HomeMain')} 
+            onPress={() => props.navigation.navigate('HomeMain')}
           />
-          <DrawerItem 
-            label="物品管理" 
-            icon="grid-outline" 
+          <DrawerItem
+            label="物品管理"
+            icon="grid-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('ItemManagement')} 
+            onPress={() => props.navigation.navigate('ItemManagement')}
+          />
+          <DrawerItem
+            label="每日任務"
+            icon="leaf-outline"
+            theme={theme}
+            onPress={() => props.navigation.navigate('CalendarCheckIn')}
+          />
+          <DrawerItem
+            label="收納測驗"
+            icon="albums-outline"
+            theme={theme}
+            onPress={() => props.navigation.navigate('Quiz')}
           />
           {/* 已修正：將原本的 AIChat 修正為 App.tsx 中註冊的 Chat */}
-          <DrawerItem 
-            label="AI對話" 
-            icon="chatbubbles-outline" 
+          <DrawerItem
+            label="收納助理"
+            icon="chatbubbles-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('AIChat')} 
+            onPress={() => props.navigation.navigate('AIChat')}
           />
-          <DrawerItem 
-            label="歷史紀錄" 
-            icon="time-outline" 
+          <DrawerItem
+            label="歷史紀錄"
+            icon="time-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('AIAnalysisHistory')} 
+            onPress={() => props.navigation.navigate('AIAnalysisHistory')}
           />
-          <DrawerItem 
-            label="二手拍賣" 
-            icon="hammer-outline" 
+          <DrawerItem
+            label="二手市集"
+            icon="hammer-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('Market')} 
+            onPress={() => props.navigation.navigate('Market')}
           />
-        
+
+          <DrawerItem
+            label="捐贈與回收"
+            icon="leaf-outline"
+            theme={theme}
+            onPress={() =>
+              props.navigation.navigate('DonationRecycling', {
+                itemCategory: undefined,
+                condition: 'unsure',
+                kind: 'all',
+              })
+            }
+          />
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
-          
-          <DrawerItem 
-            label="個人中心" 
-            icon="person-outline" 
+
+          <DrawerItem
+            label="個人中心"
+            icon="person-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('EditProfile')} 
+            onPress={() => props.navigation.navigate('EditProfile')}
           />
-          <DrawerItem 
-            label="設定" 
-            icon="settings-outline" 
+          <DrawerItem
+            label="設定"
+            icon="settings-outline"
             theme={theme}
-            onPress={() => props.navigation.navigate('Settings')} 
+            onPress={() => props.navigation.navigate('Settings')}
           />
-          <DrawerItem 
-            label="關於我們" 
-            icon="alert-circle-outline" 
+          <DrawerItem
+            label="關於我們"
+            icon="alert-circle-outline"
             theme={theme}
           />
-          
+
           <View style={[styles.divider, { backgroundColor: theme.border }]} />
-          
-          <DrawerItem 
-            label="登出" 
-            icon="exit-outline" 
+
+          <DrawerItem
+            label="登出"
+            icon="exit-outline"
             theme={theme}
-            onPress={() => props.navigation.replace('Login')} 
+            onPress={async () => {
+              try {
+                await disableNativePush();
+              } catch {
+                Alert.alert('登出失敗', '無法取消此裝置推播，請連線後重試。');
+                return;
+              }
+              const { error } = await supabase.auth.signOut();
+              if (error) Alert.alert('登出失敗', '請稍後重試。');
+            }}
           />
         </View>
       </DrawerContentScrollView>
@@ -87,6 +130,7 @@ const CustomDrawer = (props: any) => {
 
 // 抽離的選單項目組件，動態吃 theme 屬性，不留行內樣式警告
 const DrawerItem = ({ label, icon, onPress, theme }: any) => {
+  const styles = useScreenStyles(baseStyles, theme);
   const itemLabelStyle = [styles.itemLabel, { color: theme.textMain }];
 
   return (
@@ -97,7 +141,7 @@ const DrawerItem = ({ label, icon, onPress, theme }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -120,7 +164,7 @@ const styles = StyleSheet.create({
     width: 25,
   },
   itemLabel: {
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '500',
   },
   divider: {

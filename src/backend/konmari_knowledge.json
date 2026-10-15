@@ -1,0 +1,87 @@
+{
+  "reference_book": "怦然心動的人生整理魔法",
+  "author": "近藤麻理惠",
+  "scope": "依作者官方 KonMari 公開資料自行整理的技巧摘要；不是書籍全文、逐字引文或頁碼引用。",
+  "records": [
+    {
+      "id": "ideal-life",
+      "title": "怦然心動整理法｜理想生活與個人心動感",
+      "content": "先想像理想生活。逐件拿起物品，由使用者判斷是否心動；不以閒置天數自動決定去留。",
+      "keywords": "理想生活 偏好 選擇保留 心動 展示 隱藏",
+      "source_url": "https://konmari.com/about-the-konmari-method/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "category-order",
+      "title": "怦然心動整理法｜按類別與順序整理",
+      "content": "按類別集合物品，再依衣物、書籍、文件、雜物、紀念品的順序整理，避免只逐間房移動雜物。",
+      "keywords": "分類 衣物 衣服 書籍 書本 文件 雜物 紀念品 同類 順序",
+      "source_url": "https://konmari.com/about-the-konmari-method/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "choose-keep",
+      "title": "怦然心動整理法｜先決定保留再收納",
+      "content": "先選出要留下的物品，感謝並放下不再需要的，再確定收納安排。照片不能替使用者判定心動與否。",
+      "keywords": "去留 減量 選擇保留 心動 收納 釋出",
+      "source_url": "https://konmari.com/about-the-konmari-method/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "fixed-home",
+      "title": "怦然心動整理法｜同類集中與固定位置",
+      "content": "同類物品集中或相鄰存放，每件保留物品都有容易取用、容易放回的位置。分類宜清楚簡單。",
+      "keywords": "定位 分類 歸位 櫃子 抽屜 層架 文具 廚房 固定位置",
+      "source_url": "https://konmari.com/marie-kondo-hikidashi-boxes/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "existing-boxes",
+      "title": "怦然心動整理法｜先用現有容器分區",
+      "content": "可利用現有堅固盒子或盒蓋，分隔抽屜、整理文具或廚房用品；先清楚知道留下的物品，再安排容器。",
+      "keywords": "現有 收納櫃 抽屜 容器 分隔 文具 廚房 盒子 採購",
+      "source_url": "https://konmari.com/marie-kondo-hikidashi-boxes/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "vertical-fold",
+      "title": "怦然心動整理法｜衣物直立摺放",
+      "content": "合適的衣物摺成可直立的形狀，使抽屜中每件衣物容易看見與取出；以實際衣料與收納位置調整。",
+      "keywords": "衣服 衣物 毛巾 摺衣 直立 垂直 抽屜 可視",
+      "source_url": "https://konmari.com/konmari-clothes-folding-faqs/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "papers",
+      "title": "怦然心動整理法｜文件與待辦分開",
+      "content": "文件整理先排除已不需要的內容；需處理的信件或帳單另放待辦區，保留文件可直立收好，情感物品留到後面。",
+      "keywords": "文件 紙張 帳單 待辦 書桌 文具 信件 紀念",
+      "source_url": "https://konmari.com/how-to-konmari-paper/",
+      "source_type": "official_summary",
+      "source_label": "KonMari 官方整理技巧摘要",
+      "verified_at": "2026-10-11"
+    },
+    {
+      "id": "sorti-constraints",
+      "title": "拾序 實務調整｜照片限制與物品處理",
+      "content": "依可見格局與人格偏好安排位置，不推測尺寸、容量或未拍到的家具；先保障出入口。完整整理按類別，單次任務只處理看得到的一類並提醒確認其他位置。仍可用且不需要的物品可選轉售或捐贈；損壞不可用只提供回收或清運。安全、生活必需與需保存的文件，不因照片或心動判斷直接丟棄。",
+      "keywords": "房間格局 動線 現有收納櫃 展示 隱藏 簡易 詳盡 安全 捐贈 損壞 回收",
+      "source_url": null,
+      "source_type": "sorti_adaptation",
+      "source_label": "拾序 應用情境調整",
+      "verified_at": "2026-10-11"
+    }
+  ]
+}

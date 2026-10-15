@@ -1,213 +1,45 @@
+import { LocalizedText as Text, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import { useScreenStyles } from '../design/useScreenStyles';
 import React, { useMemo } from 'react';
-import {
-  Image,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { Image, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
-import Markdown from 'react-native-markdown-display';
+import AdviceText from '../components/AdviceText';
 
 import { useTheme } from '../context/ThemeContext';
 import type { AiAnalysisHistoryRecord } from '../services/photoTempStore';
 import { AI_ANALYSIS_ROOM_IMAGE } from './aiAnalysisData';
 
-const PURCHASE_SECTION_TITLES = [
-  '建議採購',
-  '建議採買',
-  '建議補充',
-  '建議購買',
-];
+import { parseAdvice } from '../services/adviceSections';
 
-type ParsedAdvice = {
-  mainAdvice: string;
-  purchaseItems: string[];
-};
-
-const parseAdvice = (adviceText: string): ParsedAdvice => {
-  if (!adviceText?.trim()) {
-    return {
-      mainAdvice: '',
-      purchaseItems: [],
-    };
-  }
-
-  const lines = adviceText.split(/\r?\n/);
-
-  const sectionIndex = lines.findIndex((line) =>
-    PURCHASE_SECTION_TITLES.some((title) =>
-      new RegExp(
-        `^(#+\\s*)?${title}(\\s*[:：])?$`,
-        'i',
-      ).test(line.trim()),
-    ),
-  );
-
-  if (sectionIndex === -1) {
-    return {
-      mainAdvice: adviceText.trim(),
-      purchaseItems: [],
-    };
-  }
-
-  const mainAdvice = lines
-    .slice(0, sectionIndex)
-    .join('\n')
-    .trim();
-
-  const purchaseItems: string[] = [];
-
-  for (
-    let index = sectionIndex + 1;
-    index < lines.length;
-    index += 1
-  ) {
-    const line = lines[index].trim();
-
-    if (!line) {
-      continue;
-    }
-
-    if (/^#{1,6}\s+/.test(line)) {
-      break;
-    }
-
-    const bulletMatch = line.match(
-      /^(?:[-*•]|\d+[.)])\s*(.+)$/,
-    );
-
-    const candidate = (
-      bulletMatch?.[1] ?? line
-    )
-      .replace(/[*_~`]/g, '')
-      .trim();
-
-    if (
-      !candidate ||
-      candidate === '無' ||
-      candidate === '目前不需要添購' ||
-      candidate ===
-        '目前沒有需要補充的收納用品'
-    ) {
-      continue;
-    }
-
-    purchaseItems.push(candidate);
-  }
-
-  return {
-    mainAdvice: mainAdvice || adviceText.trim(),
-    purchaseItems: [...new Set(purchaseItems)],
-  };
-};
-
-const AIAnalysisHistoryDetailScreen = ({
-  navigation,
-  route,
-}: any) => {
+const AIAnalysisHistoryDetailScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
 
-  const record = route?.params
-    ?.record as AiAnalysisHistoryRecord | undefined;
+  const record = route?.params?.record as AiAnalysisHistoryRecord | undefined;
 
   const parsedAdvice = useMemo(
     () => parseAdvice(record?.adviceText ?? ''),
     [record?.adviceText],
   );
 
-  const markdownStyles = useMemo(
-    () => ({
-      body: {
-        color: theme.textMain,
-        fontSize: 15,
-        lineHeight: 24,
-      },
-      heading1: {
-        color: theme.textMain,
-        fontSize: 21,
-        fontWeight: '800' as const,
-        marginTop: 4,
-        marginBottom: 8,
-      },
-      heading2: {
-        color: theme.textMain,
-        fontSize: 19,
-        fontWeight: '800' as const,
-        marginTop: 4,
-        marginBottom: 8,
-      },
-      heading3: {
-        color: theme.textMain,
-        fontSize: 17,
-        fontWeight: '800' as const,
-        marginTop: 4,
-        marginBottom: 8,
-      },
-      paragraph: {
-        color: theme.textMain,
-        fontSize: 15,
-        lineHeight: 24,
-        marginBottom: 8,
-      },
-      ordered_list: {
-        marginBottom: 8,
-      },
-      bullet_list: {
-        marginBottom: 8,
-      },
-      list_item: {
-        marginBottom: 6,
-      },
-      strong: {
-        color: theme.textMain,
-        fontWeight: '800' as const,
-      },
-    }),
-    [theme.textMain],
-  );
-
   if (!record) {
     return (
       <SafeAreaView
-        style={[
-          styles.container,
-          { backgroundColor: theme.background },
-        ]}
+        style={[styles.container, { backgroundColor: theme.background }]}
       >
-        <View
-          style={[
-            styles.header,
-            { borderBottomColor: theme.border },
-          ]}
-        >
+        <View style={[styles.header, { borderBottomColor: theme.border }]}>
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Icon
-              name="chevron-back"
-              size={25}
-              color={theme.textMain}
-            />
-            <Text
-              style={[
-                styles.backText,
-                { color: theme.textMain },
-              ]}
-            >
+            <Icon name="chevron-back" size={25} color={theme.textMain} />
+            <Text style={[styles.backText, { color: theme.textMain }]}>
               返回
             </Text>
           </TouchableOpacity>
 
-          <Text
-            style={[
-              styles.headerTitle,
-              { color: theme.textMain },
-            ]}
-          >
+          <Text style={[styles.headerTitle, { color: theme.textMain }]}>
             紀錄詳情
           </Text>
 
@@ -215,17 +47,8 @@ const AIAnalysisHistoryDetailScreen = ({
         </View>
 
         <View style={styles.missingWrap}>
-          <Icon
-            name="alert-circle-outline"
-            size={42}
-            color={theme.textSub}
-          />
-          <Text
-            style={[
-              styles.missingText,
-              { color: theme.textSub },
-            ]}
-          >
+          <Icon name="alert-circle-outline" size={42} color={theme.textSub} />
+          <Text style={[styles.missingText, { color: theme.textSub }]}>
             找不到這筆歷史紀錄。
           </Text>
         </View>
@@ -235,43 +58,19 @@ const AIAnalysisHistoryDetailScreen = ({
 
   return (
     <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: theme.background },
-      ]}
+      style={[styles.container, { backgroundColor: theme.background }]}
     >
-      <View
-        style={[
-          styles.header,
-          { borderBottomColor: theme.border },
-        ]}
-      >
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
           activeOpacity={0.75}
         >
-          <Icon
-            name="chevron-back"
-            size={25}
-            color={theme.textMain}
-          />
-          <Text
-            style={[
-              styles.backText,
-              { color: theme.textMain },
-            ]}
-          >
-            返回
-          </Text>
+          <Icon name="chevron-back" size={25} color={theme.textMain} />
+          <Text style={[styles.backText, { color: theme.textMain }]}>返回</Text>
         </TouchableOpacity>
 
-        <Text
-          style={[
-            styles.headerTitle,
-            { color: theme.textMain },
-          ]}
-        >
+        <Text style={[styles.headerTitle, { color: theme.textMain }]}>
           紀錄詳情
         </Text>
 
@@ -282,11 +81,19 @@ const AIAnalysisHistoryDetailScreen = ({
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        <TouchableOpacity
+          onPress={() =>
+            navigation.navigate('AIChat', {
+              detectedItems: record.detectedItems,
+            })
+          }
+          style={[styles.adviceCard, { borderColor: theme.border }]}
+        >
+          <Text style={{ color: theme.primary }}>針對這些物品詢問 AI</Text>
+        </TouchableOpacity>
         <Image
           source={{
-            uri:
-              record.photoUri ??
-              AI_ANALYSIS_ROOM_IMAGE,
+            uri: record.photoUri ?? AI_ANALYSIS_ROOM_IMAGE,
           }}
           style={styles.heroImage}
           resizeMode="cover"
@@ -301,130 +108,91 @@ const AIAnalysisHistoryDetailScreen = ({
             },
           ]}
         >
-          <Text
-            style={[
-              styles.summaryTitle,
-              { color: theme.textMain },
-            ]}
-          >
+          <Text style={[styles.summaryTitle, { color: theme.textMain }]}>
             {record.summary || 'AI 收納分析'}
           </Text>
 
           <View style={styles.metaRow}>
-            <Icon
-              name="calendar-outline"
-              size={17}
-              color={theme.textSub}
-            />
-            <Text
-              style={[
-                styles.metaText,
-                { color: theme.textSub },
-              ]}
-            >
-              {new Date(
-                record.createdAt,
-              ).toLocaleString('zh-TW')}
+            <Icon name="calendar-outline" size={17} color={theme.textSub} />
+            <Text style={[styles.metaText, { color: theme.textSub }]}>
+              {new Date(record.createdAt).toLocaleString('zh-TW')}
             </Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              { color: theme.textMain },
-            ]}
-          >
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
             辨識到的物件
           </Text>
 
           {record.detectedItems.length > 0 ? (
             <View style={styles.itemList}>
-              {record.detectedItems.map(
-                (item, index) => (
-                  <View
-                    key={`${item.name}-${item.category}-${index}`}
-                    style={[
-                      styles.itemCard,
-                      {
-                        backgroundColor:
-                          theme.cardBg,
-                        borderColor:
-                          theme.border,
-                      },
-                    ]}
-                  >
-                    <View style={styles.itemTextBlock}>
-                      <Text
-                        style={[
-                          styles.itemName,
-                          {
-                            color:
-                              theme.textMain,
-                          },
-                        ]}
-                      >
-                        {item.name}
-                      </Text>
-
-                      <Text
-                        style={[
-                          styles.itemCategory,
-                          {
-                            color:
-                              theme.textSub,
-                          },
-                        ]}
-                      >
-                        {item.category}
-                      </Text>
-                    </View>
-
-                    <View
+              {record.detectedItems.map((item, index) => (
+                <View
+                  key={`${item.name}-${item.category}-${index}`}
+                  style={[
+                    styles.itemCard,
+                    {
+                      backgroundColor: theme.cardBg,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.itemTextBlock}>
+                    <Text
                       style={[
-                        styles.countBadge,
+                        styles.itemName,
                         {
-                          backgroundColor:
-                            theme.background,
+                          color: theme.textMain,
+                        },
+                      ]}
+                     localize={false}>
+                      {item.name}
+                    </Text>
+
+                    <Text
+                      style={[
+                        styles.itemCategory,
+                        {
+                          color: theme.textSub,
                         },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.countBadgeText,
-                          {
-                            color:
-                              theme.textMain,
-                          },
-                        ]}
-                      >
-                        × {item.count}
-                      </Text>
-                    </View>
+                      {item.category}
+                    </Text>
                   </View>
-                ),
-              )}
+
+                  <View
+                    style={[
+                      styles.countBadge,
+                      {
+                        backgroundColor: theme.background,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.countBadgeText,
+                        {
+                          color: theme.textMain,
+                        },
+                      ]}
+                    >
+                      × {item.count}
+                    </Text>
+                  </View>
+                </View>
+              ))}
             </View>
           ) : (
-            <Text
-              style={[
-                styles.emptyText,
-                { color: theme.textSub },
-              ]}
-            >
+            <Text style={[styles.emptyText, { color: theme.textSub }]}>
               這筆紀錄沒有物件辨識清單。
             </Text>
           )}
         </View>
 
         <View style={styles.section}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              { color: theme.textMain },
-            ]}
-          >
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
             完整收納建議
           </Text>
 
@@ -438,16 +206,9 @@ const AIAnalysisHistoryDetailScreen = ({
             ]}
           >
             {parsedAdvice.mainAdvice ? (
-              <Markdown style={markdownStyles}>
-                {parsedAdvice.mainAdvice}
-              </Markdown>
+              <AdviceText text={parsedAdvice.mainAdvice} />
             ) : (
-              <Text
-                style={[
-                  styles.emptyText,
-                  { color: theme.textSub },
-                ]}
-              >
+              <Text style={[styles.emptyText, { color: theme.textSub }]}>
                 這筆紀錄沒有收納建議。
               </Text>
             )}
@@ -455,51 +216,40 @@ const AIAnalysisHistoryDetailScreen = ({
         </View>
 
         <View style={styles.section}>
-          <Text
-            style={[
-              styles.sectionTitle,
-              { color: theme.textMain },
-            ]}
-          >
+          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
             建議採購
           </Text>
 
-          {parsedAdvice.purchaseItems.length >
-          0 ? (
+          {parsedAdvice.purchaseItems.length > 0 ? (
             <View style={styles.purchaseList}>
-              {parsedAdvice.purchaseItems.map(
-                (item) => (
-                  <View
-                    key={item}
+              {parsedAdvice.purchaseItems.map(item => (
+                <View
+                  key={item}
+                  style={[
+                    styles.purchaseCard,
+                    {
+                      backgroundColor: theme.cardBg,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Icon
+                    name="bag-handle-outline"
+                    size={20}
+                    color={theme.primary}
+                  />
+                  <Text
                     style={[
-                      styles.purchaseCard,
+                      styles.purchaseText,
                       {
-                        backgroundColor:
-                          theme.cardBg,
-                        borderColor:
-                          theme.border,
+                        color: theme.textMain,
                       },
                     ]}
                   >
-                    <Icon
-                      name="bag-handle-outline"
-                      size={20}
-                      color={theme.primary}
-                    />
-                    <Text
-                      style={[
-                        styles.purchaseText,
-                        {
-                          color:
-                            theme.textMain,
-                        },
-                      ]}
-                    >
-                      {item}
-                    </Text>
-                  </View>
-                ),
-              )}
+                    {item}
+                  </Text>
+                </View>
+              ))}
             </View>
           ) : (
             <View
@@ -516,12 +266,7 @@ const AIAnalysisHistoryDetailScreen = ({
                 size={22}
                 color={theme.primary}
               />
-              <Text
-                style={[
-                  styles.noPurchaseText,
-                  { color: theme.textMain },
-                ]}
-              >
+              <Text style={[styles.noPurchaseText, { color: theme.textMain }]}>
                 目前沒有需要補充的收納用品。
               </Text>
             </View>
@@ -532,7 +277,7 @@ const AIAnalysisHistoryDetailScreen = ({
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
   },

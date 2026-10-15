@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -69,30 +70,26 @@ def load_kondo_rules_text() -> str:
     return KONDO_RULES_PATH.read_text(encoding="utf-8")
 
 
-def build_kondo_documents(chunk_size: int = 900, chunk_overlap: int = 120) -> List[KnowledgeChunk]:
-    """把原始規則切成適合檢索的文字片段。"""
+def build_kondo_documents(chunk_size: int = 900, chunk_overlap: int = 120, include_pdf: bool = True) -> List[KnowledgeChunk]:
+    """每項技巧獨立檢索，保留官方來源與 拾序 自訂規則的區別。"""
 
-    chunks = _split_text(
-        load_kondo_rules_text(),
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", "。", "；", "，", " "],
-    )
-
-    documents: List[KnowledgeChunk] = []
-    for index, chunk in enumerate(chunks, start=1):
-        documents.append(
-            KnowledgeChunk(
-                page_content=chunk.strip(),
-                metadata={
-                    "source": "kondo_rules.txt",
-                    "title": f"怦然心動法則片段 {index}",
-                    "chunk_index": index,
-                },
-            )
-        )
-
+    data = json.loads((Path(__file__).parent / 'konmari_knowledge.json').read_text(encoding='utf-8'))
+    documents = [KnowledgeChunk(
+        page_content=record['content'],
+        metadata={key: value for key, value in record.items() if key != 'content'},
+    ) for record in data['records']]
+    if include_pdf:
+        documents.extend(load_pdf_documents())
     return documents
+
+
+
+def load_pdf_documents(index_path: Path | None = None) -> List[KnowledgeChunk]:
+    path = index_path or Path(__file__).parent / 'rag_data' / 'user_book.json'
+    if not path.exists():
+        return []
+    payload=json.loads(path.read_text(encoding='utf-8'))
+    return [KnowledgeChunk(page_content=record['content'],metadata={key:value for key,value in record.items() if key!='content'}) for record in payload['records']]
 
 
 def format_documents(documents: List[KnowledgeChunk]) -> str:

@@ -1,24 +1,15 @@
+import { LocalizedAlert as Alert, LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import { useScreenStyles } from '../design/useScreenStyles';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Alert,
-  Animated,
-  Image,
-  ImageBackground,
-  Modal,
-  PanResponder,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  type LayoutChangeEvent,
-} from 'react-native';
+import { Animated, Image, ImageBackground, Modal, PanResponder, ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 
 import { useTheme } from '../context/ThemeContext';
+import SpaceAnalysisCard from '../components/SpaceAnalysisCard';
 import { AI_ANALYSIS_ROOM_IMAGE } from './aiAnalysisData';
+import { cropItemsFromPhoto } from '../services/aiApi';
+import { saveRemoteAnalysis } from '../services/supabaseData';
 import type { ChatItem, DetectionBox } from '../types/ai';
 
 type EditableDetectionBox = DetectionBox & { id: string };
@@ -31,7 +22,8 @@ type DraftCorner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
-const createBoxId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const createBoxId = () =>
+  `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 const toBoxRect = (box: DetectionBox): NormalizedRect => ({
   x: box.x,
@@ -40,7 +32,10 @@ const toBoxRect = (box: DetectionBox): NormalizedRect => ({
   height: box.height,
 });
 
-const toDisplayRect = (box: NormalizedRect, frame: { width: number; height: number }) => ({
+const toDisplayRect = (
+  box: NormalizedRect,
+  frame: { width: number; height: number },
+) => ({
   left: box.x * frame.width,
   top: box.y * frame.height,
   width: box.width * frame.width,
@@ -48,10 +43,18 @@ const toDisplayRect = (box: NormalizedRect, frame: { width: number; height: numb
 });
 
 const containsPointInRect = (point: NormalizedPoint, rect: NormalizedRect) => {
-  return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+  return (
+    point.x >= rect.x &&
+    point.x <= rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y <= rect.y + rect.height
+  );
 };
 
-const buildRectFromPoints = (start: NormalizedPoint, end: NormalizedPoint): NormalizedRect => {
+const buildRectFromPoints = (
+  start: NormalizedPoint,
+  end: NormalizedPoint,
+): NormalizedRect => {
   const left = Math.min(start.x, end.x);
   const top = Math.min(start.y, end.y);
   const width = Math.abs(end.x - start.x);
@@ -65,8 +68,10 @@ const buildRectFromPoints = (start: NormalizedPoint, end: NormalizedPoint): Norm
   };
 };
 
-const getBoxesAtPoint = (boxes: EditableDetectionBox[], point: NormalizedPoint) =>
-  boxes.filter((box) => containsPointInRect(point, toBoxRect(box))).reverse();
+const getBoxesAtPoint = (
+  boxes: EditableDetectionBox[],
+  point: NormalizedPoint,
+) => boxes.filter(box => containsPointInRect(point, toBoxRect(box))).reverse();
 
 const normalizeRect = (rect: NormalizedRect): NormalizedRect => {
   const width = Math.max(0.04, Math.min(1, rect.width));
@@ -77,7 +82,10 @@ const normalizeRect = (rect: NormalizedRect): NormalizedRect => {
   return { x, y, width, height };
 };
 
-const getRectCornerPoint = (rect: NormalizedRect, corner: DraftCorner): NormalizedPoint => {
+const getRectCornerPoint = (
+  rect: NormalizedRect,
+  corner: DraftCorner,
+): NormalizedPoint => {
   switch (corner) {
     case 'topLeft':
       return { x: rect.x, y: rect.y };
@@ -108,34 +116,75 @@ const getOppositeCorner = (corner: DraftCorner): DraftCorner => {
 const buildSummaryItems = (boxes: EditableDetectionBox[]): ChatItem[] => {
   const categoryMap = new Map<string, ChatItem>();
 
-  boxes.forEach((box) => {
+  boxes.forEach(box => {
     const name = box.name?.trim() || '未命名物品';
     const category = box.category?.trim() || '未分類';
-    const current = categoryMap.get(`${category}-${name}`) ?? { name, category, count: 0 };
+    const current = categoryMap.get(`${category}-${name}`) ?? {
+      name,
+      category,
+      count: 0,
+    };
     current.count += 1;
     categoryMap.set(`${category}-${name}`, current);
   });
 
   return Array.from(categoryMap.values()).sort(
-    (left, right) => right.count - left.count || left.category.localeCompare(right.category, 'zh-Hant') || left.name.localeCompare(right.name, 'zh-Hant'),
+    (left, right) =>
+      right.count - left.count ||
+      left.category.localeCompare(right.category, 'zh-Hant') ||
+      left.name.localeCompare(right.name, 'zh-Hant'),
   );
 };
 
 const AIAnalysisResultScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
   const photoUri = route?.params?.photoUri;
+  const [importing, setImporting] = useState(false);
+  const [preferenceNotes, setPreferenceNotes] = useState('');
   const previewUri = photoUri ?? AI_ANALYSIS_ROOM_IMAGE;
-  const [editableBoxes, setEditableBoxes] = useState<EditableDetectionBox[]>(() =>
-    (Array.isArray(route?.params?.detectionBoxes) ? route.params.detectionBoxes : []).map((box: DetectionBox) => ({
-      ...box,
-      id: createBoxId(),
-    })),
+  const [editableBoxes, setEditableBoxes] = useState<EditableDetectionBox[]>(
+    () =>
+      (Array.isArray(route?.params?.detectionBoxes)
+        ? route.params.detectionBoxes
+        : []
+      ).map((box: DetectionBox) => ({
+        ...box,
+        id: createBoxId(),
+      })),
   );
-  const modelName = route?.params?.modelName ?? 'best.pt';
-  const totalDetections = editableBoxes.length || route?.params?.totalDetections || 0;
+  const totalDetections = editableBoxes.length;
+  const [cropPreviews, setCropPreviews] = useState<
+    { name: string; category: string; photoUri: string }[]
+  >([]);
+  const [cropping, setCropping] = useState(false);
+  const cropVersion = useRef(0);
+  useEffect(() => {
+    cropVersion.current += 1;
+    setCropPreviews([]);
+  }, [editableBoxes, photoUri]);
+  async function previewCrops() {
+    if (!photoUri || cropping) return;
+    setCropping(true);
+    try {
+      const version = cropVersion.current;
+      const { items } = await cropItemsFromPhoto(photoUri, editableBoxes);
+      if (version === cropVersion.current) setCropPreviews(items);
+    } catch (error) {
+      Alert.alert(
+        '裁切失敗',
+        error instanceof Error ? error.message : '請稍後重試。',
+      );
+    } finally {
+      setCropping(false);
+    }
+  }
   const [expandedTitle, setExpandedTitle] = useState('');
   const [previewFrameWidth, setPreviewFrameWidth] = useState(0);
-  const [previewImageSize, setPreviewImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [previewImageSize, setPreviewImageSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
   const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editCategory, setEditCategory] = useState('');
@@ -153,12 +202,15 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
   const draftRectRef = useRef<NormalizedRect | null>(null);
   const gestureStartRectRef = useRef<NormalizedRect | null>(null);
 
-  const displayItems = useMemo(() => buildSummaryItems(editableBoxes), [editableBoxes]);
+  const displayItems = useMemo(
+    () => buildSummaryItems(editableBoxes),
+    [editableBoxes],
+  );
 
   const displayCategories = useMemo(() => {
     const categoryMap = new Map<string, EditableDetectionBox[]>();
 
-    editableBoxes.forEach((box) => {
+    editableBoxes.forEach(box => {
       const category = box.category?.trim() || '未分類';
       const current = categoryMap.get(category) ?? [];
       current.push(box);
@@ -167,7 +219,11 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
 
     return Array.from(categoryMap.entries())
       .map(([title, boxes]) => ({ title, boxes }))
-      .sort((left, right) => right.boxes.length - left.boxes.length || left.title.localeCompare(right.title, 'zh-Hant'));
+      .sort(
+        (left, right) =>
+          right.boxes.length - left.boxes.length ||
+          left.title.localeCompare(right.title, 'zh-Hant'),
+      );
   }, [editableBoxes]);
 
   useEffect(() => {
@@ -201,13 +257,8 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
     };
   }, [previewUri]);
 
-  const openCategory = useMemo(
-    () => displayCategories.find((category) => category.title === expandedTitle) ?? displayCategories[0],
-    [displayCategories, expandedTitle],
-  );
-
   const selectedBox = useMemo(
-    () => editableBoxes.find((box) => box.id === selectedBoxId) ?? null,
+    () => editableBoxes.find(box => box.id === selectedBoxId) ?? null,
     [editableBoxes, selectedBoxId],
   );
 
@@ -233,11 +284,19 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
     setEditCategory(box.category);
   };
 
-  const getItemActionButtonTextStyle = (color: string) => [styles.itemActionButtonText, { color }];
+  const getItemActionButtonTextStyle = (color: string) => [
+    styles.itemActionButtonText,
+    { color },
+  ];
 
   const previewImageFrame = useMemo(() => {
     const frameHeight = 420;
-    if (!previewFrameWidth || !previewImageSize || previewImageSize.width <= 0 || previewImageSize.height <= 0) {
+    if (
+      !previewFrameWidth ||
+      !previewImageSize ||
+      previewImageSize.width <= 0 ||
+      previewImageSize.height <= 0
+    ) {
       return { left: 0, top: 0, width: previewFrameWidth, height: frameHeight };
     }
 
@@ -322,7 +381,7 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
       height: draftRect.height,
     };
 
-    setEditableBoxes((currentBoxes) => [...currentBoxes, newBox]);
+    setEditableBoxes(currentBoxes => [...currentBoxes, newBox]);
     setSelectedBoxId(newBox.id);
     setEditName('');
     setEditCategory('');
@@ -353,11 +412,18 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
         onPanResponderGrant: () => {
           gestureStartRectRef.current = draftRectRef.current;
         },
-        onPanResponderMove: Animated.event([null, { dx: panAnim.x, dy: panAnim.y }], {
-          useNativeDriver: false,
-        }),
+        onPanResponderMove: Animated.event(
+          [null, { dx: panAnim.x, dy: panAnim.y }],
+          {
+            useNativeDriver: false,
+          },
+        ),
         onPanResponderRelease: (_event, gestureState) => {
-          if (gestureStartRectRef.current && previewImageFrame.width && previewImageFrame.height) {
+          if (
+            gestureStartRectRef.current &&
+            previewImageFrame.width &&
+            previewImageFrame.height
+          ) {
             const dxNorm = gestureState.dx / previewImageFrame.width;
             const dyNorm = gestureState.dy / previewImageFrame.height;
 
@@ -387,9 +453,12 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
         gestureStartRectRef.current = draftRectRef.current;
         setActiveCorner(corner);
       },
-      onPanResponderMove: Animated.event([null, { dx: resizeAnim.x, dy: resizeAnim.y }], {
-        useNativeDriver: false,
-      }),
+      onPanResponderMove: Animated.event(
+        [null, { dx: resizeAnim.x, dy: resizeAnim.y }],
+        {
+          useNativeDriver: false,
+        },
+      ),
       onPanResponderRelease: (_event, gestureState) => {
         const startRect = gestureStartRectRef.current;
         if (startRect && previewImageFrame.width && previewImageFrame.height) {
@@ -402,7 +471,9 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
             y: movedCorner.y + gestureState.dy / previewImageFrame.height,
           };
 
-          const newRect = normalizeRect(buildRectFromPoints(anchor, currentPoint));
+          const newRect = normalizeRect(
+            buildRectFromPoints(anchor, currentPoint),
+          );
           setDraftRect(newRect);
         }
         resizeAnim.setValue({ x: 0, y: 0 });
@@ -433,7 +504,13 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
 
     const handleResponder = createHandleResponder(corner);
 
-    return <View key={corner} {...handleResponder.panHandlers} style={[styles.draftHandle, positionStyle]} />;
+    return (
+      <View
+        key={corner}
+        {...handleResponder.panHandlers}
+        style={[styles.draftHandle, positionStyle]}
+      />
+    );
   };
 
   // 動態計算 DraftBox 樣式（包含動態移動 Translate 與動態縮放 Width/Height/Translate）
@@ -452,10 +529,7 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
         top: baseTop,
         width: Animated.subtract(baseWidth, resizeAnim.x),
         height: Animated.subtract(baseHeight, resizeAnim.y),
-        transform: [
-          { translateX: resizeAnim.x },
-          { translateY: resizeAnim.y },
-        ],
+        transform: [{ translateX: resizeAnim.x }, { translateY: resizeAnim.y }],
       };
     }
 
@@ -492,18 +566,20 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
   };
 
   const previewPanResponder = PanResponder.create({
-    onStartShouldSetPanResponder: (event) => {
+    onStartShouldSetPanResponder: event => {
       if (isAddMode) {
         return false;
       }
 
       const { locationX, locationY } = event.nativeEvent;
       const point = normalizePoint(locationX, locationY);
-      const hitExistingBox = editableBoxes.some((box) => containsPointInRect(point, toBoxRect(box)));
+      const hitExistingBox = editableBoxes.some(box =>
+        containsPointInRect(point, toBoxRect(box)),
+      );
       return hitExistingBox;
     },
     onMoveShouldSetPanResponder: () => false,
-    onPanResponderGrant: (event) => {
+    onPanResponderGrant: event => {
       if (isAddMode) {
         return;
       }
@@ -522,7 +598,9 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
     setDraftModalVisible(false);
 
     if (draftBoxId) {
-      setEditableBoxes((currentBoxes) => currentBoxes.filter((box) => box.id !== draftBoxId));
+      setEditableBoxes(currentBoxes =>
+        currentBoxes.filter(box => box.id !== draftBoxId),
+      );
     }
 
     setDraftBoxId(null);
@@ -544,8 +622,8 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
       return;
     }
 
-    setEditableBoxes((currentBoxes) =>
-      currentBoxes.map((box) =>
+    setEditableBoxes(currentBoxes =>
+      currentBoxes.map(box =>
         box.id === selectedBoxId
           ? {
               ...box,
@@ -570,7 +648,9 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
         text: '刪除',
         style: 'destructive',
         onPress: () => {
-          setEditableBoxes((currentBoxes) => currentBoxes.filter((candidate) => candidate.id !== box.id));
+          setEditableBoxes(currentBoxes =>
+            currentBoxes.filter(candidate => candidate.id !== box.id),
+          );
 
           if (selectedBoxId === box.id) {
             setSelectedBoxId(null);
@@ -586,175 +666,433 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+        >
           <Icon name="chevron-back" size={28} color={theme.textMain} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>分析結果</Text>
+        <Text style={[styles.headerTitle, { color: theme.textMain }]}>
+          分析結果
+        </Text>
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={[styles.previewCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-          <View style={styles.preview} onLayout={handlePreviewLayout} {...previewPanResponder.panHandlers}>
-            <ImageBackground source={{ uri: previewUri }} style={styles.previewImageBackground} imageStyle={styles.previewImage} resizeMode="contain" />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <SpaceAnalysisCard
+          space={route?.params?.spaceAnalysis}
+          notice={route?.params?.spaceNotice}
+        />
+        <View
+          style={[
+            styles.objectReview,
+            { backgroundColor: theme.cardBg, borderColor: theme.border },
+          ]}
+        >
+          <View
+            style={[
+              styles.previewCard,
+              styles.previewInPanel,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
             <View
-              pointerEvents="box-none"
-              style={[
-                styles.previewImageLayer,
-                {
-                  left: previewImageFrame.left,
-                  top: previewImageFrame.top,
-                  width: previewImageFrame.width,
-                  height: previewImageFrame.height,
-                },
-              ]}
+              style={styles.preview}
+              onLayout={handlePreviewLayout}
+              {...previewPanResponder.panHandlers}
             >
-              {editableBoxes.map((box) => {
-                const rect = toDisplayRect(toBoxRect(box), previewImageFrame);
-                const isSelected = selectedBoxId === box.id;
+              <ImageBackground
+                source={{ uri: previewUri }}
+                style={styles.previewImageBackground}
+                imageStyle={styles.previewImage}
+                resizeMode="contain"
+              />
+              <View
+                pointerEvents="box-none"
+                style={[
+                  styles.previewImageLayer,
+                  {
+                    left: previewImageFrame.left,
+                    top: previewImageFrame.top,
+                    width: previewImageFrame.width,
+                    height: previewImageFrame.height,
+                  },
+                ]}
+              >
+                {editableBoxes.map(box => {
+                  const rect = toDisplayRect(toBoxRect(box), previewImageFrame);
+                  const isSelected = selectedBoxId === box.id;
 
-                return (
-                  <View
-                    key={box.id}
+                  return (
+                    <View
+                      key={box.id}
+                      style={[
+                        styles.detectionBox,
+                        isSelected && styles.detectionBoxSelected,
+                        {
+                          left: rect.left,
+                          top: rect.top,
+                          width: rect.width,
+                          height: rect.height,
+                        },
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.boxLabel,
+                          isSelected && styles.boxLabelSelected,
+                        ]}
+                      >
+                        <Text style={styles.boxLabelText}>
+                          {box.name || '未命名物品'}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {draftRect ? (
+                  <Animated.View
+                    pointerEvents="auto"
                     style={[
                       styles.detectionBox,
-                      isSelected && styles.detectionBoxSelected,
-                      {
-                        left: rect.left,
-                        top: rect.top,
-                        width: rect.width,
-                        height: rect.height,
-                      },
+                      styles.draftBox,
+                      animatedDraftBoxStyle,
                     ]}
                   >
-                    <View style={[styles.boxLabel, isSelected && styles.boxLabelSelected]}>
-                      <Text style={styles.boxLabelText}>{box.name || '未命名物品'}</Text>
+                    <View
+                      {...draftMoveResponder.panHandlers}
+                      style={styles.draftMoveSurface}
+                    />
+                    <View style={[styles.boxLabel, styles.draftLabel]}>
+                      <Text style={styles.boxLabelText}>新增框框</Text>
                     </View>
+                    {renderDraftHandle('topLeft')}
+                    {renderDraftHandle('bottomRight')}
+                  </Animated.View>
+                ) : null}
+              </View>
+              <View pointerEvents="none" style={styles.previewMask} />
+              <View style={styles.resultBadge}>
+                <Icon name="checkmark-done-outline" size={16} color="#fff" />
+                <Text style={styles.resultBadgeText}>
+                  {editableBoxes.length > 0
+                    ? `已辨識 ${totalDetections} 個物件`
+                    : `目前沒有辨識到明確物品`}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={[styles.sectionHeader, { borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.textMain }]}>
+              物品統整
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.sectionAddButton,
+                { backgroundColor: theme.primary },
+              ]}
+              onPress={startAddDraft}
+            >
+              <Text style={styles.sectionAddButtonText}>新增物品</Text>
+            </TouchableOpacity>
+          </View>
+
+          {isAddMode && draftRect ? (
+            <View
+              style={[
+                styles.draftActionBar,
+                { borderColor: theme.border, backgroundColor: theme.cardBg },
+              ]}
+            >
+              <Text style={[styles.draftActionText, { color: theme.textSub }]}>
+                先調整圖片上的框框，再按確定填寫詳細資訊。
+              </Text>
+              <View style={styles.draftActionButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.draftCancelButton,
+                    { borderColor: theme.border },
+                  ]}
+                  onPress={cancelDraftBox}
+                >
+                  <Text
+                    style={[
+                      styles.draftCancelButtonText,
+                      { color: theme.textMain },
+                    ]}
+                  >
+                    取消
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.draftConfirmButton,
+                    { backgroundColor: theme.primary },
+                  ]}
+                  onPress={confirmDraftBox}
+                >
+                  <Text style={styles.draftConfirmButtonText}>確定</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
+          {displayCategories.length > 0 ? (
+            <View
+              style={[
+                styles.categoryPanel,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              {displayCategories.map(category => {
+                const isOpen = category.title === expandedTitle;
+                return (
+                  <View key={category.title} style={styles.categoryBlock}>
+                    <TouchableOpacity
+                      style={[
+                        styles.categoryHeader,
+                        isOpen && styles.categoryHeaderOpen,
+                      ]}
+                      onPress={() =>
+                        setExpandedTitle(isOpen ? '' : category.title)
+                      }
+                    >
+                      <View style={styles.categoryHeaderLeft}>
+                        <Text style={[styles.arrow, { color: theme.textMain }]}>
+                          {isOpen ? '⌄' : '>'}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.categoryName,
+                            { color: theme.textMain },
+                          ]}
+                        >
+                          {category.title}({category.boxes.length}件)
+                        </Text>
+                      </View>
+                      <Text
+                        style={[styles.deleteText, { color: theme.textMain }]}
+                      >
+                        {isOpen ? '展開中' : '查看'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {isOpen ? (
+                      <View style={styles.categoryBody}>
+                        {category.boxes.map(box => {
+                          const isSelected = selectedBoxId === box.id;
+                          return (
+                            <View
+                              key={box.id}
+                              style={[
+                                styles.itemRow,
+                                isSelected && styles.itemRowSelected,
+                                {
+                                  borderColor: isSelected
+                                    ? theme.primary
+                                    : theme.border,
+                                },
+                              ]}
+                            >
+                              <TouchableOpacity
+                                style={styles.itemSelectArea}
+                                onPress={() => selectBoxFromList(box)}
+                                activeOpacity={0.85}
+                              >
+                                <View
+                                  style={[
+                                    styles.itemDot,
+                                    {
+                                      backgroundColor: isSelected
+                                        ? theme.primary
+                                        : theme.border,
+                                    },
+                                  ]}
+                                />
+                                <View style={styles.itemTextBlock}>
+                                  <Text
+                                    style={[
+                                      styles.itemText,
+                                      { color: theme.textMain },
+                                    ]}
+                                  >
+                                    {box.name || '未命名物品'}
+                                  </Text>
+                                  <Text
+                                    style={[
+                                      styles.itemMeta,
+                                      { color: theme.textSub },
+                                    ]}
+                                  >
+                                    {box.category || '未分類'}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
+                              <View style={styles.itemActionButtons}>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.itemActionButton,
+                                    { borderColor: theme.border },
+                                  ]}
+                                  onPress={() => openEditModal(box)}
+                                >
+                                  <Text
+                                    style={getItemActionButtonTextStyle(
+                                      theme.textMain,
+                                    )}
+                                  >
+                                    修改
+                                  </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.itemActionButton,
+                                    { borderColor: theme.border },
+                                  ]}
+                                  onPress={() => deleteBox(box)}
+                                >
+                                  <Text style={styles.itemDeleteText}>
+                                    刪除
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
-
-              {draftRect ? (
-                <Animated.View
-                  pointerEvents="auto"
-                  style={[
-                    styles.detectionBox,
-                    styles.draftBox,
-                    animatedDraftBoxStyle,
-                  ]}
-                >
-                  <View {...draftMoveResponder.panHandlers} style={styles.draftMoveSurface} />
-                  <View style={[styles.boxLabel, styles.draftLabel]}>
-                    <Text style={styles.boxLabelText}>新增框框</Text>
-                  </View>
-                  {renderDraftHandle('topLeft')}
-                  {renderDraftHandle('bottomRight')}
-                </Animated.View>
-              ) : null}
             </View>
-            <View pointerEvents="none" style={styles.previewMask} />
-            <View style={styles.resultBadge}>
-              <Icon name="checkmark-done-outline" size={16} color="#fff" />
-              <Text style={styles.resultBadgeText}>
-                {editableBoxes.length > 0
-                  ? `模型辨識完成 ${totalDetections} 個物件`
-                  : `模型已完成分析 ${modelName}，目前沒有偵測到明確物件`}
+          ) : (
+            <View
+              style={[
+                styles.emptyStateCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.emptyStateTitle, { color: theme.textMain }]}>
+                目前沒有偵測到明確物件
+              </Text>
+              <Text style={[styles.emptyStateText, { color: theme.textSub }]}>
+                這張照片沒有辨識到明確物品。請靠近物品、保持光線充足，或換個角度重新拍攝。
               </Text>
             </View>
-          </View>
+          )}
+
+          {!!route?.params?.detectionNotice && (
+            <Text style={{ color: theme.textSub, padding: 12 }}>
+              {route.params.detectionNotice}
+            </Text>
+          )}
         </View>
-
-        <View style={[styles.sectionHeader, { borderColor: theme.border }]}>
-          <Text style={[styles.sectionTitle, { color: theme.textMain }]}>物品統整</Text>
-          <TouchableOpacity style={[styles.sectionAddButton, { backgroundColor: theme.primary }]} onPress={startAddDraft}>
-            <Text style={styles.sectionAddButtonText}>新增物品</Text>
-          </TouchableOpacity>
+        <View style={styles.footerHint}>
+          <Text style={{ color: theme.textMain }}>收納需求與限制（選填）</Text>
+          <TextInput
+            value={preferenceNotes}
+            onChangeText={setPreferenceNotes}
+            maxLength={500}
+            multiline
+            placeholder="例如：租屋不能鑽牆、常用物品要好拿、優先用現有櫃子"
+            placeholderTextColor={theme.textSub}
+            style={{
+              color: theme.textMain,
+              borderColor: theme.border,
+              borderWidth: 1,
+              padding: 12,
+            }}
+          />
         </View>
-
-        {isAddMode && draftRect ? (
-          <View style={[styles.draftActionBar, { borderColor: theme.border, backgroundColor: theme.cardBg }]}>
-            <Text style={[styles.draftActionText, { color: theme.textSub }]}>先調整圖片上的框框，再按確定填寫詳細資訊。</Text>
-            <View style={styles.draftActionButtons}>
-              <TouchableOpacity style={[styles.draftCancelButton, { borderColor: theme.border }]} onPress={cancelDraftBox}>
-                <Text style={[styles.draftCancelButtonText, { color: theme.textMain }]}>取消</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.draftConfirmButton, { backgroundColor: theme.primary }]} onPress={confirmDraftBox}>
-                <Text style={styles.draftConfirmButtonText}>確定</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
-
-        {displayCategories.length > 0 ? (
-          <View style={[styles.categoryPanel, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            {displayCategories.map((category) => {
-              const isOpen = category.title === expandedTitle;
-              return (
-                <View key={category.title} style={styles.categoryBlock}>
-                  <TouchableOpacity
-                    style={[styles.categoryHeader, isOpen && styles.categoryHeaderOpen]}
-                    onPress={() => setExpandedTitle(isOpen ? '' : category.title)}
-                  >
-                    <View style={styles.categoryHeaderLeft}>
-                      <Text style={[styles.arrow, { color: theme.textMain }]}>{isOpen ? '⌄' : '>'}</Text>
-                      <Text style={[styles.categoryName, { color: theme.textMain }]}>{category.title}({category.boxes.length}件)</Text>
-                    </View>
-                    <Text style={[styles.deleteText, { color: theme.textMain }]}>{isOpen ? '展開中' : '查看'}</Text>
-                  </TouchableOpacity>
-
-                  {isOpen ? (
-                    <View style={styles.categoryBody}>
-                      {category.boxes.map((box) => {
-                        const isSelected = selectedBoxId === box.id;
-                        return (
-                          <View key={box.id} style={[styles.itemRow, isSelected && styles.itemRowSelected, { borderColor: isSelected ? theme.primary : theme.border }]}>
-                            <TouchableOpacity style={styles.itemSelectArea} onPress={() => selectBoxFromList(box)} activeOpacity={0.85}>
-                              <View style={[styles.itemDot, { backgroundColor: isSelected ? theme.primary : theme.border }]} />
-                              <View style={styles.itemTextBlock}>
-                                <Text style={[styles.itemText, { color: theme.textMain }]}>{box.name || '未命名物品'}</Text>
-                                <Text style={[styles.itemMeta, { color: theme.textSub }]}>{box.category || '未分類'}</Text>
-                              </View>
-                            </TouchableOpacity>
-                            <View style={styles.itemActionButtons}>
-                              <TouchableOpacity style={[styles.itemActionButton, { borderColor: theme.border }]} onPress={() => openEditModal(box)}>
-                                <Text style={getItemActionButtonTextStyle(theme.textMain)}>修改</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity style={[styles.itemActionButton, { borderColor: theme.border }]} onPress={() => deleteBox(box)}>
-                                <Text style={styles.itemDeleteText}>刪除</Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        ) : (
-          <View style={[styles.emptyStateCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <Text style={[styles.emptyStateTitle, { color: theme.textMain }]}>目前沒有偵測到明確物件</Text>
-            <Text style={[styles.emptyStateText, { color: theme.textSub }]}>這代表模型已經收到照片並完成分析，但這張照片沒有超過目前模型閾值的辨識結果。你可以再拍一次、更靠近一點或換角度。</Text>
+        {!!editableBoxes.length && (
+          <View style={styles.footerHint}>
+            <TouchableOpacity
+              style={[styles.ctaButton, { backgroundColor: theme.primary }]}
+              disabled={cropping}
+              onPress={previewCrops}
+            >
+              <Text style={styles.ctaText}>
+                {cropping ? '裁切中…' : '更新單件裁切預覽'}
+              </Text>
+            </TouchableOpacity>
+            {cropPreviews.map((item, index) => (
+              <View key={index}>
+                <Image
+                  source={{ uri: item.photoUri }}
+                  style={styles.cropThumbnail}
+                  resizeMode="contain"
+                />
+                <Text style={{ color: theme.textMain }} localize={false}>
+                  {item.name} · {item.category}
+                </Text>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={[styles.ctaButton, { backgroundColor: theme.primary }]}
+              onPress={() =>
+                navigation.navigate('AIChat', { detectedItems: displayItems })
+              }
+            >
+              <Text style={styles.ctaText}>針對這些物品詢問 AI</Text>
+            </TouchableOpacity>
           </View>
         )}
-
         <View style={styles.footerHint}>
           <Text style={[styles.footerHintText, { color: theme.textSub }]}>
             {displayCategories.length > 0
-              ? '系統已自動完成分類，接著可以查看更完整的收納建議。'
+              ? '請確認物品名稱與框選範圍，可手動新增物品；確認後按「產生建議」。'
               : '這次分析沒有產生物品清單，所以畫面上不會顯示分類項目。'}
           </Text>
         </View>
+        <TouchableOpacity
+          style={[styles.ctaButton, { backgroundColor: theme.primary }]}
+          accessibilityRole="button"
+          accessibilityLabel="產生建議"
+          disabled={importing}
+          onPress={() =>
+            navigation.navigate('AIAnalysisAdvice', {
+              photoUri,
+              detectedItems: displayItems,
+              detectionBoxes: editableBoxes,
+              spaceAnalysis: route?.params?.spaceAnalysis,
+              preferenceNotes,
+            })
+          }
+        >
+          <Text style={styles.ctaText}>產生建議</Text>
+        </TouchableOpacity>
       </ScrollView>
 
-      <Modal visible={isDetailsModalVisible} transparent animationType="fade" onRequestClose={closeEditModal}>
+      <Modal
+        visible={isDetailsModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeEditModal}
+      >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.cardBg, borderColor: theme.border }]}>
-            <Text style={[styles.modalTitle, { color: theme.textMain }]}>{draftModalVisible ? '填寫物品詳細資訊' : '修改物品資訊'}</Text>
-            <Text style={[styles.modalSubtitle, { color: theme.textSub }]}>{draftModalVisible ? '先填入名稱與分類，再儲存。' : '修改後會立即更新圖片上的框框與統整清單。'}</Text>
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: theme.textMain }]}>
+              {draftModalVisible ? '填寫物品詳細資訊' : '修改物品資訊'}
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: theme.textSub }]}>
+              {draftModalVisible
+                ? '先填入名稱與分類，再儲存。'
+                : '修改後會立即更新圖片上的框框與統整清單。'}
+            </Text>
 
             <View style={styles.modalForm}>
               <TextInput
@@ -762,22 +1100,47 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
                 onChangeText={setEditName}
                 placeholder="物品名稱"
                 placeholderTextColor={theme.textSub}
-                style={[styles.modalInput, { borderColor: theme.border, color: theme.textMain }]}
+                style={[
+                  styles.modalInput,
+                  { borderColor: theme.border, color: theme.textMain },
+                ]}
               />
               <TextInput
                 value={editCategory}
                 onChangeText={setEditCategory}
                 placeholder="分類"
                 placeholderTextColor={theme.textSub}
-                style={[styles.modalInput, { borderColor: theme.border, color: theme.textMain }]}
+                style={[
+                  styles.modalInput,
+                  { borderColor: theme.border, color: theme.textMain },
+                ]}
               />
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalSecondaryButton, { borderColor: theme.border }]} onPress={closeEditModal}>
-                <Text style={[styles.modalSecondaryButtonText, { color: theme.textMain }]}>取消</Text>
+              <TouchableOpacity
+                style={[
+                  styles.modalSecondaryButton,
+                  { borderColor: theme.border },
+                ]}
+                onPress={closeEditModal}
+              >
+                <Text
+                  style={[
+                    styles.modalSecondaryButtonText,
+                    { color: theme.textMain },
+                  ]}
+                >
+                  取消
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalPrimaryButton, { backgroundColor: theme.primary }]} onPress={saveEditModal}>
+              <TouchableOpacity
+                style={[
+                  styles.modalPrimaryButton,
+                  { backgroundColor: theme.primary },
+                ]}
+                onPress={saveEditModal}
+              >
                 <Text style={styles.modalPrimaryButtonText}>儲存</Text>
               </TouchableOpacity>
             </View>
@@ -785,23 +1148,54 @@ const AIAnalysisResultScreen = ({ navigation, route }: any) => {
         </View>
       </Modal>
 
-      <View style={[styles.bottomBar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        <View style={styles.bottomLeft}>
-          <Text style={[styles.bottomLabel, { color: theme.textSub }]}>目前展開</Text>
-          <Text style={[styles.bottomValue, { color: theme.textMain }]}>{openCategory?.title ?? '未分類'}</Text>
-        </View>
+      <View
+        style={[
+          styles.bottomBar,
+          { backgroundColor: theme.background, borderTopColor: theme.border },
+        ]}
+      >
         <TouchableOpacity
+          accessibilityRole="button"
+          disabled={importing || !editableBoxes.length}
           style={[styles.ctaButton, { backgroundColor: theme.primary }]}
-          onPress={() => navigation.navigate('AIAnalysisAdvice', { photoUri, detectedItems: displayItems })}
+          onPress={async () => {
+            if (!photoUri || importing) return;
+            setImporting(true);
+            try {
+              const { items } = await cropItemsFromPhoto(
+                photoUri,
+                editableBoxes,
+              );
+              await saveRemoteAnalysis({
+                photoUri,
+                detectedItems: displayItems,
+                itemPhotos: items,
+                adviceText: '',
+                summary: `辨識 ${editableBoxes.length} 個物件`,
+              });
+              navigation.replace('ItemManagement');
+            } catch (error) {
+              Alert.alert(
+                '匯入失敗',
+                error instanceof Error ? error.message : '請稍後重試。',
+              );
+            } finally {
+              setImporting(false);
+            }
+          }}
         >
-          <Text style={styles.ctaText}>收納建議</Text>
+          <Text style={styles.ctaText}>
+            {importing ? '匯入中' : '匯入物品管理'}
+          </Text>
         </TouchableOpacity>
+
       </View>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
+  cropThumbnail: { width: 160, height: 140, marginTop: 12 },
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
@@ -813,7 +1207,15 @@ const styles = StyleSheet.create({
   backBtn: { paddingVertical: 4, paddingRight: 12 },
   headerTitle: { fontSize: 20, fontWeight: '800' },
   headerSpacer: { width: 28 },
-  scrollContent: { paddingBottom: 110 },
+  scrollContent: { paddingBottom: 24 },
+  objectReview: { margin: 16, padding: 16, borderWidth: 1, borderRadius: 16 },
+  previewInPanel: {
+    marginHorizontal: 0,
+    borderWidth: 0,
+    borderRadius: 12,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
   previewCard: {
     marginHorizontal: 16,
     borderRadius: 24,
@@ -963,7 +1365,12 @@ const styles = StyleSheet.create({
   arrow: { fontSize: 22, marginRight: 6 },
   categoryName: { fontSize: 14, fontWeight: '700' },
   deleteText: { fontSize: 13, fontWeight: '700' },
-  categoryBody: { paddingHorizontal: 12, paddingVertical: 10, gap: 10, backgroundColor: '#fff' },
+  categoryBody: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 10,
+    backgroundColor: '#fff',
+  },
   itemRow: {
     borderWidth: 1,
     borderRadius: 14,
@@ -986,7 +1393,12 @@ const styles = StyleSheet.create({
   itemDot: { width: 8, height: 8, borderRadius: 4 },
   itemText: { fontSize: 14, fontWeight: '700' },
   itemMeta: { fontSize: 11, marginTop: 2 },
-  itemActionButtons: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end', alignItems: 'center' },
+  itemActionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
   itemActionButton: {
     minWidth: 48,
     minHeight: 28,
@@ -1010,14 +1422,11 @@ const styles = StyleSheet.create({
   footerHint: { paddingHorizontal: 20, paddingTop: 14 },
   footerHintText: { fontSize: 13, lineHeight: 19 },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     borderTopWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
+    gap: 8,
     paddingTop: 12,
     paddingBottom: 16,
   },
@@ -1025,7 +1434,8 @@ const styles = StyleSheet.create({
   bottomLabel: { fontSize: 11, fontWeight: '700' },
   bottomValue: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   ctaButton: {
-    minWidth: 116,
+    flex: 1,
+    minWidth: 80,
     height: 44,
     borderRadius: 14,
     alignItems: 'center',

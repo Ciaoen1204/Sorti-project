@@ -1,19 +1,15 @@
+import { LocalizedText as Text, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import { useScreenStyles } from '../design/useScreenStyles';
 import React from 'react';
-import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  Image,
-} from 'react-native';
+import { StyleSheet, View, ScrollView, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
 
 const CartScreen = ({ navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
+  const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
   const { cartItems, removeFromCart } = useCart();
 
   // 計算購物車商品總金額
@@ -22,17 +18,24 @@ const CartScreen = ({ navigation }: any) => {
   // 關鍵優化：抽離按鈕動態文字樣式，完美規避 ESLint 警告
   const checkoutBtnTextStyle = [
     styles.checkoutBtnText,
-    { color: isDarkMode ? '#1c1816' : '#333' }
+    { color: theme.onPrimary },
   ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background }]}
+    >
       {/* 頂部導覽列 */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => navigation.goBack()}
+        >
           <Icon name="chevron-back" size={28} color={theme.textMain} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>我的購物車</Text>
+        <Text style={[styles.headerTitle, { color: theme.textMain }]}>
+          我的購物車
+        </Text>
         <View style={styles.headerPlaceholder} />
       </View>
 
@@ -43,7 +46,7 @@ const CartScreen = ({ navigation }: any) => {
           <Text style={[styles.emptyText, { color: theme.textSub }]}>
             你的購物車目前空空的喔 🧙‍♂️
           </Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.goShoppingBtn, { backgroundColor: theme.primary }]}
             onPress={() => navigation.navigate('Market')}
           >
@@ -53,13 +56,22 @@ const CartScreen = ({ navigation }: any) => {
       ) : (
         /* 有商品的購物車畫面 */
         <View style={styles.cartContent}>
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-            {cartItems.map((item) => (
-              <View key={item.id} style={[styles.cartItemCard, { backgroundColor: theme.cardBg }]}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {cartItems.map(item => (
+              <View
+                key={item.id}
+                style={[styles.cartItemCard, { backgroundColor: theme.cardBg }]}
+              >
                 <Image source={{ uri: item.img }} style={styles.itemImg} />
-                
+
                 <View style={styles.itemInfo}>
-                  <Text style={[styles.itemTitle, { color: theme.textMain }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.itemTitle, { color: theme.textMain }]}
+                    numberOfLines={1}
+                   localize={false}>
                     {item.title}
                   </Text>
                   <Text style={[styles.itemLocation, { color: theme.textSub }]}>
@@ -71,8 +83,8 @@ const CartScreen = ({ navigation }: any) => {
                 </View>
 
                 {/* 垃圾桶移除按鈕 */}
-                <TouchableOpacity 
-                  style={styles.removeBtn} 
+                <TouchableOpacity
+                  style={styles.removeBtn}
                   onPress={() => removeFromCart(item.id)}
                 >
                   <Icon name="trash-outline" size={20} color="#c94a4a" />
@@ -82,16 +94,27 @@ const CartScreen = ({ navigation }: any) => {
           </ScrollView>
 
           {/* 底部結帳控制列 ── 已修改點擊事件跳轉至 Checkout 頁面 */}
-          <View style={[styles.checkoutBar, { backgroundColor: theme.cardBg, borderTopColor: theme.border }]}>
+          <View
+            style={[
+              styles.checkoutBar,
+              { backgroundColor: theme.cardBg, borderTopColor: theme.border },
+            ]}
+          >
             <View style={styles.priceRow}>
-              <Text style={[styles.totalLabel, { color: theme.textMain }]}>總計金額：</Text>
-              <Text style={[styles.totalPrice, { color: theme.primary }]}>${totalPrice}</Text>
+              <Text style={[styles.totalLabel, { color: theme.textMain }]}>
+                總計金額：
+              </Text>
+              <Text style={[styles.totalPrice, { color: theme.primary }]}>
+                ${totalPrice}
+              </Text>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.checkoutBtn, { backgroundColor: theme.primary }]}
               onPress={() => navigation.navigate('Checkout')}
             >
-              <Text style={checkoutBtnTextStyle}>結帳購買 ({cartItems.length})</Text>
+              <Text style={checkoutBtnTextStyle}>
+                結帳購買 ({cartItems.length})
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -100,7 +123,7 @@ const CartScreen = ({ navigation }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -113,8 +136,12 @@ const styles = StyleSheet.create({
   },
   backBtn: { paddingVertical: 5, paddingRight: 15, zIndex: 10 },
   headerTitle: {
-    position: 'absolute', left: 0, right: 0, textAlign: 'center',
-    fontSize: 20, fontWeight: '600',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: '600',
   },
   headerPlaceholder: { width: 32 },
   cartContent: {
@@ -182,10 +209,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   checkoutBar: {
-    position: 'absolute',
-    bottom: 0,
     width: '100%',
-    height: 90,
+    minHeight: 90,
     borderTopWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',

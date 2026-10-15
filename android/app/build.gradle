@@ -7,6 +7,10 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
+    // Resolve mapped Windows drives before starting Metro.
+    if (System.getProperty("os.name").toLowerCase().contains("windows")) {
+        nodeExecutableAndArgs = ["node", file("../../scripts/run-react-native-cli.js").absolutePath]
+    }
     /* Folders */
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")
@@ -107,6 +111,12 @@ android {
     }
 }
 
+// Environment values are embedded in the JavaScript bundle by react-native-dotenv.
+// Rebuild the bundle when .env changes instead of reusing an outdated APK config.
+tasks.withType(com.facebook.react.tasks.BundleHermesCTask).configureEach {
+    inputs.file(file("../../.env")).optional()
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
@@ -118,3 +128,5 @@ dependencies {
     }
 }
 
+
+if (file("google-services.json").exists()) { apply plugin: "com.google.gms.google-services" }

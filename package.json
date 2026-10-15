@@ -7,16 +7,27 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest"
+    "test": "jest",
+    "pwa:prepare": "node scripts/export-pwa-quiz.cjs && node scripts/export-pwa-data.cjs",
+    "pwa:build": "npm run pwa:prepare && vite build --config web/vite.config.mjs && node scripts/build-pwa-worker.mjs",
+    "pwa:check": "npm run pwa:prepare && tsc -p web/tsconfig.json",
+    "pwa:serve": "node scripts/serve-pwa.mjs",
+    "pwa:test": "playwright test -c web/playwright.config.ts"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.1.1",
+    "@react-native-clipboard/clipboard": "^1.16.3",
+    "@react-native-firebase/app": "26.4.0",
+    "@react-native-firebase/messaging": "26.4.0",
     "@react-native-masked-view/masked-view": "^0.3.2",
     "@react-native/new-app-screen": "0.85.3",
     "@react-navigation/drawer": "^7.11.2",
     "@react-navigation/native": "^7.3.0",
     "@react-navigation/stack": "^7.10.2",
+    "@supabase/supabase-js": "^2.109.0",
+    "firebase": "12.17.1",
     "react": "19.2.3",
+    "react-dom": "^19.2.3",
     "react-native": "0.85.3",
     "react-native-gesture-handler": "^2.31.2",
     "react-native-image-picker": "^8.2.1",
@@ -26,6 +37,7 @@
     "react-native-reanimated": "^4.3.1",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-screens": "^4.25.2",
+    "react-native-url-polyfill": "^4.0.0",
     "react-native-vector-icons": "^10.3.0",
     "react-native-vision-camera": "^5.0.11",
     "react-native-worklets": "^0.8.3"
@@ -34,6 +46,7 @@
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
+    "@playwright/test": "^1.64.0",
     "@react-native-community/cli": "20.1.0",
     "@react-native-community/cli-platform-android": "20.1.0",
     "@react-native-community/cli-platform-ios": "20.1.0",
@@ -44,6 +57,7 @@
     "@react-native/typescript-config": "0.85.3",
     "@types/jest": "^29.5.13",
     "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.3.0",
     "@types/react-native-vector-icons": "^6.4.18",
     "@types/react-test-renderer": "^19.1.0",
     "eslint": "^8.19.0",
@@ -51,7 +65,8 @@
     "prettier": "2.8.8",
     "react-native-dotenv": "^3.4.11",
     "react-test-renderer": "19.2.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vite": "^7.3.7"
   },
   "engines": {
     "node": ">= 22.11.0"

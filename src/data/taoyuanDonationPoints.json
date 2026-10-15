@@ -1,0 +1,302 @@
+[
+  {
+    "id": "taoyuan-bank-0",
+    "title": "新住民家庭服務中心",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區復興路135號3樓",
+    "phoneLabel": "03-3330305",
+    "phone": "033330305",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-1",
+    "title": "中壢家庭服務中心",
+    "region": "桃園市",
+    "district": "中壢區",
+    "address": "桃園市中壢區元化路159號1樓",
+    "phoneLabel": "03-4220126",
+    "phone": "034220126",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-2",
+    "title": "內壢家庭服務中心",
+    "region": "桃園市",
+    "district": "中壢區",
+    "address": "桃園市中壢區文化二路219號4樓",
+    "phoneLabel": "03-4333219",
+    "phone": "034333219",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-3",
+    "title": "平鎮家庭服務中心",
+    "region": "桃園市",
+    "district": "平鎮區",
+    "address": "桃園市平鎮區平南里16鄰大興街66巷35號2樓",
+    "phoneLabel": "03-4911910",
+    "phone": "034911910",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-4",
+    "title": "龜山家庭服務中心",
+    "region": "桃園市",
+    "district": "龜山區",
+    "address": "桃園市龜山區自強南路97號2樓",
+    "phoneLabel": "03-3208485",
+    "phone": "033208485",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-5",
+    "title": "桃園家庭服務中心",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區陽明三街33號4樓",
+    "phoneLabel": "03-2182778",
+    "phone": "032182778",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-6",
+    "title": "安家實物銀行南區服務據點 (中華基督教救助協會)",
+    "region": "桃園市",
+    "district": "中壢區",
+    "address": "桃園市中壢區龍慈路818號",
+    "phoneLabel": "03-2174871",
+    "phone": "032174871",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-7",
+    "title": "八德身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "八德區",
+    "address": "桃園市八德區介壽路二段901巷49弄91號3樓",
+    "phoneLabel": "03-3686020",
+    "phone": "033686020",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-8",
+    "title": "中壢身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "中壢區",
+    "address": "桃園市中壢區新明路43號5樓",
+    "phoneLabel": "03-4010425",
+    "phone": "034010425",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-9",
+    "title": "龜山身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "龜山區",
+    "address": "桃園市龜山區同心一路5號1樓",
+    "phoneLabel": "03-2133700",
+    "phone": "032133700",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-10",
+    "title": "平鎮身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "平鎮區",
+    "address": "桃園市平鎮區延平路一段2號3樓",
+    "phoneLabel": "03-4024081",
+    "phone": "034024081",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-11",
+    "title": "大溪家庭服務中心",
+    "region": "桃園市",
+    "district": "大溪區",
+    "address": "桃園市大溪區中正路56號",
+    "phoneLabel": "03-3883060",
+    "phone": "033883060",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-12",
+    "title": "龍潭家庭服務中心",
+    "region": "桃園市",
+    "district": "龍潭區",
+    "address": "桃園市龍潭區干城路19巷30號",
+    "phoneLabel": "03-4790231",
+    "phone": "034790231",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-13",
+    "title": "楊梅家庭服務中心",
+    "region": "桃園市",
+    "district": "楊梅區",
+    "address": "桃園市楊梅區大成路2號4樓",
+    "phoneLabel": "03-4750067",
+    "phone": "034750067",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-14",
+    "title": "新屋家庭服務中心",
+    "region": "桃園市",
+    "district": "新屋區",
+    "address": "桃園市新屋區中山路277號1樓",
+    "phoneLabel": "03-4970225",
+    "phone": "034970225",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-15",
+    "title": "觀音家庭服務中心",
+    "region": "桃園市",
+    "district": "觀音區",
+    "address": "桃園市觀音區莊敬路188號3樓",
+    "phoneLabel": "03-4732320",
+    "phone": "034732320",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-16",
+    "title": "復興家庭服務中心",
+    "region": "桃園市",
+    "district": "復興區",
+    "address": "桃園市復興區羅浮里三鄰68之6號",
+    "phoneLabel": "03-3821110",
+    "phone": "033821110",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-17",
+    "title": "復興區原住民家庭服務中心",
+    "region": "桃園市",
+    "district": "復興區",
+    "address": "桃園市復興區羅浮里三鄰68之4號",
+    "phoneLabel": "03-2726995 #23601-23605",
+    "phone": "032726995",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-18",
+    "title": "財團法人法律扶助基金會桃園分會",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區復興路110號12樓",
+    "phoneLabel": "03-3346500 #119",
+    "phone": "033346500",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-19",
+    "title": "大園家庭服務中心",
+    "region": "桃園市",
+    "district": "大園區",
+    "address": "桃園市大園區大觀路118號2樓",
+    "phoneLabel": "03-3867128",
+    "phone": "033867128",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-20",
+    "title": "蘆竹家庭服務中心",
+    "region": "桃園市",
+    "district": "蘆竹區",
+    "address": "桃園市蘆竹區南崁路152號3樓",
+    "phoneLabel": "03-2127678",
+    "phone": "032127678",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-21",
+    "title": "八德家庭服務中心",
+    "region": "桃園市",
+    "district": "八德區",
+    "address": "桃園市八德區豐德路456號2樓",
+    "phoneLabel": "03-3652105",
+    "phone": "033652105",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-22",
+    "title": "安家實物銀行北區服務據點 (中華安得烈慈善協會)",
+    "region": "桃園市",
+    "district": "蘆竹區",
+    "address": "桃園市蘆竹區大新路60、62號",
+    "phoneLabel": "03-3238700",
+    "phone": "033238700",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-23",
+    "title": "桃園市觀音區公所",
+    "region": "桃園市",
+    "district": "觀音區",
+    "address": "桃園市觀音區觀新路56號",
+    "phoneLabel": "03-4732121 #305",
+    "phone": "034732121",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-24",
+    "title": "婦女培力中心",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區民權路69號",
+    "phoneLabel": "03-3369222",
+    "phone": "033369222",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-25",
+    "title": "中路家庭服務中心",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區國豐三街123號5樓",
+    "phoneLabel": "03-3700886",
+    "phone": "033700886",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-26",
+    "title": "龍大復身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "大溪區",
+    "address": "桃園市大溪區康莊路181號3樓",
+    "phoneLabel": "03-3880095",
+    "phone": "033880095",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-27",
+    "title": "楊新觀身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "楊梅區",
+    "address": "桃園市楊梅區楊新路二段93號",
+    "phoneLabel": "03-4880851",
+    "phone": "034880851",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-28",
+    "title": "蘆大身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "蘆竹區",
+    "address": "桃園市蘆竹區南崁路265號7樓之6",
+    "phoneLabel": "03-3529093",
+    "phone": "033529093",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  },
+  {
+    "id": "taoyuan-bank-29",
+    "title": "桃園身心障礙者服務中心",
+    "region": "桃園市",
+    "district": "桃園區",
+    "address": "桃園市桃園區建國路99號5樓",
+    "phoneLabel": "03-3662808",
+    "phone": "033662808",
+    "url": "https://publicwelfare.tycg.gov.tw/PageMB?fid=26"
+  }
+]

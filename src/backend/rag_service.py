@@ -8,8 +8,10 @@ import os
 import re
 from typing import Any, Dict, List, Literal
 
+from opencc import OpenCC
 from dotenv import load_dotenv
 from google import genai
+from gemini_config import get_api_key
 
 from knowledge_base import (
     KnowledgeChunk,
@@ -32,12 +34,8 @@ AIRequestMode = Literal["chat", "photo_analysis"]
 
 
 DEFAULT_GEMINI_CANDIDATES = [
-    "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-flash-latest",
-    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
 ]
 
 
@@ -47,7 +45,15 @@ class _ScoredChunk:
     score: float
 
 
+_SEARCH_CONVERTER = OpenCC("t2s")
+
 def _tokenize(text: str) -> List[str]:
+    text = _SEARCH_CONVERTER.convert(text)
+    for word, synonym in {'课本':'书籍','讲义':'文件','充电线':'线材'}.items():
+        if word in text:
+            text += ' ' + synonym
+    for word, synonym in {'desk':'书桌','paper':'文件','document':'文件','book':'书籍','cable':'线材','drawer':'抽屉','wardrobe':'衣柜','closet':'衣柜','clothes':'衣物','clothing':'衣物','bag':'包包','bathroom':'浴室','kitchen':'厨房','bottle':'瓶子','shelf':'层架','sentimental':'纪念品','donate':'捐赠','recycle':'回收','towel':'毛巾'}.items():
+        if re.search(r'\b'+word+r'(?:s)?\b',text,re.I):text+=' '+synonym
     tokens: List[str] = []
 
     for chinese_part in re.findall(r"[\u4e00-\u9fff]+", text):
@@ -64,7 +70,8 @@ def _tokenize(text: str) -> List[str]:
         for part in re.findall(r"[A-Za-z0-9]+", text)
     )
 
-    return tokens
+    stopwords = {'整理','收纳','怎么','么整','么收','如何','什么','办法','可以','东西','我的','我想','上有','要怎','样的','一个','我们','你们','他们'}
+    return [token for token in tokens if token not in stopwords]
 
 
 def _score_chunk(
@@ -104,13 +111,12 @@ class _SimpleRetriever:
         self._top_k = top_k
 
     def invoke(self, question: str) -> List[KnowledgeChunk]:
-        return [
-            item.chunk
-            for item in self._knowledge_base.similarity_search_with_score(
+        matches = self._knowledge_base.similarity_search_with_score(
                 question,
                 k=self._top_k,
             )
-        ]
+        best = matches[0].score if matches else 0
+        return [item.chunk for item in matches if item.score > 0 and item.score >= best * 0.35]
 
 
 class _SimpleKnowledgeBase:
@@ -122,7 +128,7 @@ class _SimpleKnowledgeBase:
         for document in documents:
             terms = Counter(
                 _tokenize(
-                    f"{document.metadata.get('title', '')} "
+                    f"{document.metadata.get('title', '')} {document.metadata.get('keywords', '')} "
                     f"{document.page_content}"
                 )
             )
@@ -138,10 +144,7 @@ class _SimpleKnowledgeBase:
         question_terms = Counter(_tokenize(question))
 
         if not question_terms:
-            return [
-                _ScoredChunk(chunk=document, score=0.0)
-                for document in self._documents[:k]
-            ]
+            return []
 
         scored_documents = [
             _ScoredChunk(
@@ -151,7 +154,7 @@ class _SimpleKnowledgeBase:
                     document_terms,
                     self._document_frequency,
                     len(self._documents),
-                ),
+                ) / math.sqrt(max(1, sum(document_terms.values()))),
             )
             for document, document_terms in zip(
                 self._documents,
@@ -188,13 +191,17 @@ def get_retriever(top_k: int = 4) -> _SimpleRetriever:
 def retrieve_knowledge(
     question: str,
     top_k: int = 4,
+    required_ids: tuple[str, ...] = (),
 ) -> List[Dict[str, Any]]:
     scored_documents = (
         get_vectorstore().similarity_search_with_score(
             question,
-            k=top_k,
+            k=len(get_vectorstore()._documents),
         )
     )
+    required = [item for item in scored_documents if item.chunk.metadata.get("id") in required_ids]
+    selected = required + [item for item in scored_documents if item not in required]
+    scored_documents = selected[:max(top_k, len(required))]
 
     result: List[Dict[str, Any]] = []
 
@@ -211,6 +218,11 @@ def retrieve_knowledge(
                     f"片段 {index}",
                 ),
                 "content": document.page_content,
+                "id": document.metadata.get("id"),
+                "source_url": document.metadata.get("source_url"),
+                "source_type": document.metadata.get("source_type"),
+                "source_label": document.metadata.get("source_label"),
+                "required": document.metadata.get("id") in required_ids,
                 "score": float(scored_document.score),
             }
         )
@@ -351,6 +363,9 @@ def _answer_with_model_fallback(
     mode: AIRequestMode = "chat",
     max_output_tokens: int = 2000,
     temperature: float = 0.35,
+    image_bytes: bytes | None = None,
+    image_mime_type: str = "image/jpeg",
+    json_response: bool = False,
 ) -> str:
     preferred_model = os.getenv(
         "GEMINI_MODEL",
@@ -371,17 +386,26 @@ def _answer_with_model_fallback(
 
     for model_name in unique_models:
         try:
-            client = genai.Client(api_key=api_key)
             from google.genai import types
+            client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=25000, retry_options=types.HttpRetryOptions(attempts=1)))
 
             response = client.models.generate_content(
                 model=model_name,
-                contents=prompt_value,
+                contents=(
+                    [prompt_value, types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type)]
+                    if image_bytes is not None else prompt_value
+                ),
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
+                    **({'response_mime_type': 'application/json'} if json_response else {}),
                 ),
             )
+
+            candidates = getattr(response, "candidates", None) or []
+            if candidates and "MAX_TOKENS" in str(getattr(candidates[0], "finish_reason", "")):
+                last_error = RuntimeError("Generation exceeded its output budget")
+                continue
 
             raw_reply = (
                 getattr(response, "text", None)
@@ -389,6 +413,8 @@ def _answer_with_model_fallback(
                 or str(response)
             )
 
+            if json_response:
+                return str(raw_reply).strip()
             if mode == "photo_analysis":
                 return _normalize_photo_reply_text(
                     str(raw_reply),
@@ -407,6 +433,10 @@ def _answer_with_model_fallback(
                 "RESOURCE_EXHAUSTED",
                 "PERMISSION_DENIED",
                 "UNAVAILABLE",
+                "ReadTimeout",
+                "timed out",
+                "DEADLINE_EXCEEDED",
+                "INTERNAL",
             ]
 
             if not any(
@@ -426,18 +456,11 @@ def _generate_chat_answer(
     api_key: str,
 ) -> str:
     """一般聊天模式：依問題意圖選擇步驟教學或簡答 Prompt。"""
-    is_organizing = _is_organizing_question(
-        bundle["question"],
-    )
-
-    if is_organizing:
-        prompt_value = build_step_instruction_prompt(
-            bundle,
-        )
-    else:
-        prompt_value = build_direct_answer_prompt(
-            bundle,
-        )
+    # Let the explicit question determine the format instead of forcing steps
+    # whenever a message merely mentions storage, a drawer, or a wardrobe.
+    prompt_value = build_direct_answer_prompt(bundle)
+    if bundle.get('language') == 'en':
+        prompt_value += '\nOUTPUT LANGUAGE OVERRIDE: Answer in natural English. For organizing requests use 2-4 concise steps (around 60-100 English words total); for follow-up questions use 1-3 short sentences. Preserve internal markers such as 【選項】 only if needed. RAG references may be Chinese: use their relevant ideas but explain in English. Do not translate user names or invent facts.' 
 
     return _answer_with_model_fallback(
         prompt_value,
@@ -451,25 +474,29 @@ def _generate_chat_answer(
 def _generate_photo_analysis_answer(
     detected_items_text: str,
     api_key: str,
+    space_context: str = '', preferences_context: str = '', rag_context: str = '', language: str = 'zh-TW',
 ) -> str:
     """
-    照片分析模式：只使用照片分析 Prompt。
-
-    不套用聊天人格、不加入延伸問題，也不做一般聊天意圖判斷。
+    照片分析使用獨立 Prompt，整合可見格局、人格偏好與 RAG，保留採購段落格式。
     """
     print("目前使用：PHOTO_ANALYSIS_SYSTEM_PROMPT")
 
     prompt_value = build_photo_analysis_prompt(
         {
             "detected_items": detected_items_text,
+            "space_context": space_context or '無法取得空間分區；不要假設格局。',
+            "preferences_context": preferences_context,
+            "rag_context": rag_context or '未檢索到相關資料。',
         }
     )
 
+    if language == 'en':
+        prompt_value += '\nOUTPUT LANGUAGE OVERRIDE: Write descriptions and actions in English, keeping only the structural section headings 整理步驟, 空間與動線 and 建議採購 in Chinese for the app parser. Use brief numbered steps.'
     return _answer_with_model_fallback(
         prompt_value,
         api_key,
         mode="photo_analysis",
-        max_output_tokens=700,
+        max_output_tokens=8192,
         temperature=0.2,
     )
 
@@ -480,12 +507,16 @@ def _build_chat_bundle(
 ) -> Dict[str, Any]:
     retriever = get_retriever(top_k)
 
+    history=inputs.get('history', [])[-8:]
+    recent_questions=' '.join(turn.get('content','')[:500] for turn in history if turn.get('role')=='user')[-1000:]
     retrieved_documents = retriever.invoke(
-        inputs["question"],
+        f"{inputs['question']} {inputs['question']} {recent_questions}",
     )
 
     return {
         "question": inputs["question"],
+        "history": history,
+        "language": inputs.get("language", "zh-TW"),
         "user_persona": inputs["user_persona"],
         "persona_focus": persona_response_focus(
             inputs["user_persona"],
@@ -508,18 +539,7 @@ def _build_chat_bundle(
 
 
 def _get_api_key() -> str:
-    api_key = (
-        os.getenv("GOOGLE_API_KEY")
-        or os.getenv("GEMINI_API_KEY")
-    )
-
-    if not api_key:
-        raise ValueError(
-            "找不到 GOOGLE_API_KEY 或 GEMINI_API_KEY，"
-            "請確認環境變數或 backend/.env。"
-        )
-
-    return api_key
+    return get_api_key()
 
 
 def get_answer_chain(
@@ -573,6 +593,10 @@ def answer_question(
     user_persona: str | None = None,
     top_k: int = 4,
     mode: AIRequestMode = "chat",
+    space_analysis: Dict[str, Any] | None = None,
+    storage_preferences: Dict[str, Any] | None = None,
+    history: List[Dict[str, str]] | None = None,
+    language: str = "zh-TW",
 ) -> Dict[str, Any]:
     """
     統一回答入口。
@@ -581,7 +605,7 @@ def answer_question(
         使用人格、RAG 知識庫、步驟或簡答 Prompt。
 
     mode="photo_analysis"
-        只使用照片分析 Prompt，並由 AI 根據整理方法推斷採購用品。
+        依空間觀察、人格偏好與 RAG 資料生成建議，最後判斷是否需要採購用品。
     """
     normalized_mode: AIRequestMode = (
         "photo_analysis"
@@ -596,16 +620,26 @@ def answer_question(
     print("rag_service 收到的 mode：", mode)
     print("正規化後的 mode：", normalized_mode)
 
-    # 照片分析不需要檢索聊天知識庫，也不套用人格 Prompt。
     if normalized_mode == "photo_analysis":
-        api_key = _get_api_key()
-
+        import json
+        # The photo pipeline uses its own prompt, with actual retrieved knowledge.
+        space_text = json.dumps(space_analysis or {}, ensure_ascii=False)
+        preferences = {'persona': describe_persona(user_persona), 'focus': persona_response_focus(user_persona), **(storage_preferences or {})}
+        preferences_text = json.dumps(preferences, ensure_ascii=False)
+        query = f"房間格局 動線 現有收納櫃 分類定位 {question} {formatted_items} {space_text} {preferences_text}"
+        notice = ''
+        try:
+            knowledge = [item for item in retrieve_knowledge(query, min(max(top_k, 3), 6), required_ids=('category-order', 'choose-keep')) if item['score'] > 0 or item.get('required')]
+        except Exception as error:
+            print('Photo RAG unavailable:', type(error).__name__)
+            knowledge = []
+            notice = '知識庫暫時無法檢索，本次建議僅使用可見空間、物品與偏好。'
+        context = '\n\n'.join(f"[{item['title']}]（{item.get('source_label') or '整理知識'}）\n{item['content']}" for item in knowledge)
         return {
-            "reply": _generate_photo_analysis_answer(
-                formatted_items,
-                api_key,
-            ),
-            "retrieved_titles": [],
+            "reply": _generate_photo_analysis_answer(formatted_items, _get_api_key(), space_text, preferences_text, context, language),
+            "retrieved_titles": [item['title'] for item in knowledge],
+            "notice": notice,
+            "retrieved_sources": [dict(title=item['title'], url=item['source_url'], source_label=item.get('source_label') or 'KonMari 官方') for item in knowledge if item.get('source_url')],
         }
 
     chain = get_answer_chain(
@@ -620,6 +654,8 @@ def answer_question(
             user_persona,
         ),
         "context": "",
+        "history": (history or [])[-8:],
+        "language": language,
     }
 
     return chain.invoke(payload)

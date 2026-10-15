@@ -1,14 +1,8 @@
+import { LocalizedText as Text, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import { useScreenStyles } from '../design/useScreenStyles';
 import React, { useCallback, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Ionicons';
 
@@ -21,6 +15,7 @@ import { AI_ANALYSIS_ROOM_IMAGE } from './aiAnalysisData';
 
 const AIAnalysisHistoryScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
+  const styles = useScreenStyles(baseStyles, theme);
   const [history, setHistory] = useState<AiAnalysisHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -52,45 +47,21 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
 
   return (
     <SafeAreaView
-      style={[
-        styles.container,
-        { backgroundColor: theme.background },
-      ]}
+      style={[styles.container, { backgroundColor: theme.background }]}
     >
-      <View
-        style={[
-          styles.header,
-          { borderBottomColor: theme.border },
-        ]}
-      >
+      <View style={[styles.header, { borderBottomColor: theme.border }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.headerButton}
           activeOpacity={0.75}
         >
-          <Icon
-            name="chevron-back"
-            size={24}
-            color={theme.textMain}
-          />
-          <Text
-            style={[
-              styles.headerButtonText,
-              { color: theme.textMain },
-            ]}
-          >
+          <Icon name="chevron-back" size={24} color={theme.textMain} />
+          <Text style={[styles.headerButtonText, { color: theme.textMain }]}>
             返回
           </Text>
         </TouchableOpacity>
 
-        <Text
-          style={[
-            styles.title,
-            { color: theme.textMain },
-          ]}
-        >
-          歷史紀錄
-        </Text>
+        <Text style={[styles.title, { color: theme.textMain }]}>歷史紀錄</Text>
 
         <TouchableOpacity
           onPress={loadHistory}
@@ -98,17 +69,8 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
           activeOpacity={0.75}
           disabled={isLoading}
         >
-          <Icon
-            name="refresh"
-            size={21}
-            color={theme.primary}
-          />
-          <Text
-            style={[
-              styles.headerButtonText,
-              { color: theme.primary },
-            ]}
-          >
+          <Icon name="refresh" size={21} color={theme.primary} />
+          <Text style={[styles.headerButtonText, { color: theme.primary }]}>
             更新
           </Text>
         </TouchableOpacity>
@@ -121,12 +83,7 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
         {isLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={theme.primary} />
-            <Text
-              style={[
-                styles.loadingText,
-                { color: theme.textSub },
-              ]}
-            >
+            <Text style={[styles.loadingText, { color: theme.textSub }]}>
               正在讀取 AI 物件分析歷史紀錄...
             </Text>
           </View>
@@ -140,30 +97,17 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
               },
             ]}
           >
-            <Icon
-              name="time-outline"
-              size={38}
-              color={theme.textSub}
-            />
-            <Text
-              style={[
-                styles.emptyTitle,
-                { color: theme.textMain },
-              ]}
-            >
+            <Icon name="time-outline" size={38} color={theme.textSub} />
+            <Text style={[styles.emptyTitle, { color: theme.textMain }]}>
               目前還沒有歷史紀錄
             </Text>
-            <Text
-              style={[
-                styles.emptyBody,
-                { color: theme.textSub },
-              ]}
-            >
-              在 AI 物件分析頁按下「儲存建議」後，這裡就會顯示每次的完整分析結果。
+            <Text style={[styles.emptyBody, { color: theme.textSub }]}>
+              在 AI
+              物件分析頁按下「儲存建議」後，這裡就會顯示每次的完整分析結果。
             </Text>
           </View>
         ) : (
-          history.map((record) => (
+          history.map(record => (
             <TouchableOpacity
               key={record.id}
               style={[
@@ -178,9 +122,7 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
             >
               <Image
                 source={{
-                  uri:
-                    record.photoUri ??
-                    AI_ANALYSIS_ROOM_IMAGE,
+                  uri: record.photoUri ?? AI_ANALYSIS_ROOM_IMAGE,
                 }}
                 style={styles.previewImage}
                 resizeMode="cover"
@@ -190,24 +132,14 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
                 <View style={styles.recordHeaderRow}>
                   <View style={styles.recordTitleBlock}>
                     <Text
-                      style={[
-                        styles.recordTitle,
-                        { color: theme.textMain },
-                      ]}
+                      style={[styles.recordTitle, { color: theme.textMain }]}
                       numberOfLines={1}
                     >
                       {record.summary || 'AI 收納分析'}
                     </Text>
 
-                    <Text
-                      style={[
-                        styles.metaText,
-                        { color: theme.textSub },
-                      ]}
-                    >
-                      {new Date(
-                        record.createdAt,
-                      ).toLocaleString('zh-TW')}
+                    <Text style={[styles.metaText, { color: theme.textSub }]}>
+                      {new Date(record.createdAt).toLocaleString('zh-TW')}
                     </Text>
                   </View>
 
@@ -219,31 +151,18 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
                 </View>
 
                 <Text
-                  style={[
-                    styles.adviceText,
-                    { color: theme.textMain },
-                  ]}
+                  style={[styles.adviceText, { color: theme.textMain }]}
                   numberOfLines={3}
                 >
                   {record.adviceText}
                 </Text>
 
                 <View style={styles.footerRow}>
-                  <Text
-                    style={[
-                      styles.countText,
-                      { color: theme.textSub },
-                    ]}
-                  >
+                  <Text style={[styles.countText, { color: theme.textSub }]}>
                     共 {record.detectedItems.length} 類物件
                   </Text>
 
-                  <Text
-                    style={[
-                      styles.detailHint,
-                      { color: theme.primary },
-                    ]}
-                  >
+                  <Text style={[styles.detailHint, { color: theme.primary }]}>
                     查看完整內容
                   </Text>
                 </View>
@@ -256,7 +175,7 @@ const AIAnalysisHistoryScreen = ({ navigation }: any) => {
   );
 };
 
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   container: {
     flex: 1,
   },

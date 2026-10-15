@@ -1,309 +1,438 @@
-import React, { useState } from 'react';
+import { LocalizedText as Text, LocalizedTextInput as TextInput, LocalizedTouchableOpacity as TouchableOpacity } from "../components/LocalizedUI";
+import DeliverySelect from '../components/DeliverySelect';
 import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  SafeAreaView,
-  ScrollView,
-  Alert,
-} from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
+  sellerChannelGroups,
+  validateChannelRecipient,
+  availableChannels,
+  channelLabel,
+  storeChannel,
+  type ChannelRecipient,
+} from '../services/deliveryChannels';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { useCart } from '../context/CartContext';
-
-const CheckoutScreen = ({ navigation }: any) => {
-  const { theme, isDarkMode } = useTheme();
-  const { cartItems, clearCart } = useCart();
-  const [paymentMethod, setPaymentMethod] = useState<'magic' | 'cod'>('magic');
-
-  // 計算結帳金額
-  const itemsPrice = cartItems.reduce((sum, item) => sum + item.price, 0);
-  const shippingFee = itemsPrice > 500 ? 0 : 60; // 滿 $500 免運，否則運費 $60
-  const totalPrice = itemsPrice + shippingFee;
-
-  // 確認付款點擊事件
-  const handlePaymentConfirm = () => {
-    Alert.alert(
-      '付款成功！🎉',
-      '魔法結帳完成！我們已通知賣家儘速為您發貨，一起找回空間的清爽魔法吧 ✨',
-      [
-        {
-          text: '太棒了！',
-          onPress: () => {
-            clearCart(); // 清空購物車
-            navigation.navigate('Home'); // 跳轉回首頁
-          },
-        },
-      ]
-    );
-  };
-
-  // 關鍵優化：抽離按鈕動態文字樣式，完美規避 ESLint 警告
-  const actionBtnTextStyle = [
-    styles.payBtnText,
-    { color: isDarkMode ? '#1c1816' : '#333' }
-  ];
-
+import * as data from '../services/supabaseData';
+import { currency } from '../services/marketplace';
+import {
+  checkoutGroups,
+  marketRequestId,
+  type DeliveryMethod,
+} from '../services/marketplaceOrder';
+export default function CheckoutScreen({ route, navigation }: any) {
+  const { theme } = useTheme(),
+    { cartItems, refreshCart } = useCart();
+  const [products, setProducts] = useState<data.ProductRecord[]>([]),
+    [methods, setMethods] = useState<Record<string, DeliveryMethod>>({}),
+    [channels, setChannels] = useState<Record<string, string>>({}),
+    [selected, setSelected] = useState<Record<string, boolean>>({}),
+    [loading, setLoading] = useState(true),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(''),
+    [success, setSuccess] = useState<string[]>([]);
+  const [recipient, setRecipient] = useState<ChannelRecipient>({
+    name: '',
+    phone: '',
+    address: '',
+  });
+  const batch = useRef(marketRequestId()),
+    submitted = useRef(false),
+    lock = useRef(false);
+  const direct = route.params?.listingId;
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    (direct
+      ? data.loadProduct(direct).then(p => [p])
+      : Promise.all(cartItems.map(p => data.loadProduct(p.id)))
+    )
+      .then(ps => {
+        if (active && !submitted.current) {
+          setProducts(ps);
+          setSelected(Object.fromEntries(ps.map(p => [p.id, true])));
+          setChannels(
+            Object.fromEntries(
+              ps.map(p => [p.id, availableChannels(p)[0]?.channel || '']),
+            ),
+          );
+          setMethods(
+            Object.fromEntries(
+              ps
+                .filter(p => p.allowMeetup || p.allowShipping)
+                .map(p => [
+                  p.id,
+                  availableChannels(p)[0]?.channel === 'meetup'
+                    ? 'meetup'
+                    : 'shipping',
+                ]),
+            ),
+          );
+        }
+      })
+      .catch(e => active && setError(e.message))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [direct, cartItems]);
+  const chosen = products.filter(p => selected[p.id]);
+  const groups = checkoutGroups(chosen, methods, p => p.id, channels),
+    shipping = chosen.some(p => methods[p.id] === 'shipping');
+  const text = { color: theme.textMain, fontSize: 16 };
+  const button = (
+    label: string,
+    fn: () => void,
+    primary = false,
+    disabled = false,
+  ) => (
+    <TouchableOpacity
+      accessibilityRole="button"
+      disabled={busy || disabled}
+      onPress={fn}
+      style={{
+        minHeight: 48,
+        padding: 14,
+        borderRadius: 14,
+        borderWidth: 1,
+        borderColor: theme.border,
+        backgroundColor: primary ? theme.primary : theme.cardBg,
+        opacity: busy || disabled ? 0.5 : 1,
+      }}
+    >
+      <Text
+        style={{
+          color: primary ? theme.onPrimary : theme.textMain,
+          fontSize: 16,
+          textAlign: 'center',
+        }}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+  function change(fn: () => void) {
+    if (submitted.current) return;
+    batch.current = marketRequestId();
+    fn();
+  }
+  async function submit() {
+    if (lock.current) return;
+    lock.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      if (!chosen.length || chosen.some(p => !methods[p.id]))
+        throw new Error('請選擇商品，並確認賣家已設定交易方式。');
+      validateChannelRecipient(
+        chosen.map(p => channels[p.id] || methods[p.id]),
+        recipient,
+      );
+      submitted.current = true;
+      const ids = await data.createMarketRequests(
+        batch.current,
+        chosen,
+        methods,
+        recipient,
+        channels,
+      );
+      setSuccess(ids);
+      await refreshCart().catch(() => {});
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : '請求失敗。請以相同內容重試，避免重複建立。',
+      );
+    } finally {
+      lock.current = false;
+      setBusy(false);
+    }
+  }
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* 頂部導覽 */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Icon name="chevron-back" size={28} color={theme.textMain} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.textMain }]}>確認結帳</Text>
-        <View style={styles.headerPlaceholder} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* 1. 配送/面交地址 */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.cardBg }]}>
-          <View style={styles.sectionTitleRow}>
-            <Icon name="location-outline" size={20} color={theme.primary} />
-            <Text style={[styles.sectionTitle, { color: theme.textMain }]}>收件資訊</Text>
-          </View>
-          <Text style={[styles.infoText, { color: theme.textMain }]}>收件人：魔法學徒</Text>
-          <Text style={[styles.infoText, { color: theme.textSub }]}>電話：0912-345-678</Text>
-          <Text style={[styles.infoText, { color: theme.textSub }]}>地址：魔法收納學院 主校區 A 棟宿舍</Text>
-        </View>
-
-        {/* 2. 付款方式選擇 */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.cardBg }]}>
-          <View style={styles.sectionTitleRow}>
-            <Icon name="card-outline" size={20} color={theme.primary} />
-            <Text style={[styles.sectionTitle, { color: theme.textMain }]}>付款方式</Text>
-          </View>
-
-          {/* 魔法金幣支付 */}
-          <TouchableOpacity 
-            style={[
-              styles.paymentOption, 
-              { borderColor: theme.border },
-              paymentMethod === 'magic' ? { borderColor: theme.primary } : null
-            ]}
-            onPress={() => setPaymentMethod('magic')}
-          >
-            <View style={styles.optionLeft}>
-              <Icon 
-                name={paymentMethod === 'magic' ? "radio-button-on" : "radio-button-off"} 
-                size={20} 
-                color={paymentMethod === 'magic' ? theme.primary : theme.textSub} 
-              />
-              <Text style={[styles.optionText, { color: theme.textMain }]}>🔮 魔法金幣支付 (全額扣抵)</Text>
-            </View>
-          </TouchableOpacity>
-
-          {/* 貨到付款 */}
-          <TouchableOpacity 
-            style={[
-              styles.paymentOption, 
-              { borderColor: theme.border },
-              paymentMethod === 'cod' ? { borderColor: theme.primary } : null
-            ]}
-            onPress={() => setPaymentMethod('cod')}
-          >
-            <View style={styles.optionLeft}>
-              <Icon 
-                name={paymentMethod === 'cod' ? "radio-button-on" : "radio-button-off"} 
-                size={20} 
-                color={paymentMethod === 'cod' ? theme.primary : theme.textSub} 
-              />
-              <Text style={[styles.optionText, { color: theme.textMain }]}>📦 貨到面交付款</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
-
-        {/* 3. 購買商品清單概要 */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.cardBg }]}>
-          <View style={styles.sectionTitleRow}>
-            <Icon name="bag-handle-outline" size={20} color={theme.primary} />
-            <Text style={[styles.sectionTitle, { color: theme.textMain }]}>商品明細 ({cartItems.length}件)</Text>
-          </View>
-          {cartItems.map((item) => (
-            <View key={item.id} style={styles.itemMinCard}>
-              <Text style={[styles.itemTitle, { color: theme.textMain }]} numberOfLines={1}>
-                {item.title}
-              </Text>
-              <Text style={[styles.itemPrice, { color: theme.primary }]}>${item.price}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* 4. 結帳金額計算 */}
-        <View style={[styles.sectionCard, { backgroundColor: theme.cardBg }]}>
-          <View style={styles.priceCalcRow}>
-            <Text style={[styles.priceCalcLabel, { color: theme.textSub }]}>商品小計</Text>
-            <Text style={[styles.priceCalcValue, { color: theme.textMain }]}>${itemsPrice}</Text>
-          </View>
-          <View style={styles.priceCalcRow}>
-            <Text style={[styles.priceCalcLabel, { color: theme.textSub }]}>傳送運費</Text>
-            <Text style={[styles.priceCalcValue, { color: theme.textMain }]}>
-              {shippingFee === 0 ? '免運 ✨' : `$${shippingFee}`}
-            </Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: theme.border }]} />
-          <View style={styles.priceCalcRow}>
-            <Text style={[styles.totalLabel, { color: theme.textMain }]}>實付總額</Text>
-            <Text style={[styles.totalPrice, { color: theme.primary }]}>${totalPrice}</Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* 底部確認付款固定按鈕 */}
-      <View style={[styles.bottomBar, { backgroundColor: theme.cardBg, borderTopColor: theme.border }]}>
-        <View style={styles.bottomPriceInfo}>
-          <Text style={[styles.bottomTotalLabel, { color: theme.textSub }]}>實付總額：</Text>
-          <Text style={[styles.bottomTotalPrice, { color: theme.primary }]}>${totalPrice}</Text>
-        </View>
-        <TouchableOpacity 
-          style={[styles.payBtn, { backgroundColor: theme.primary }]}
-          onPress={handlePaymentConfirm}
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 36 }}
         >
-          <Text style={actionBtnTextStyle}>確認付款</Text>
-        </TouchableOpacity>
-      </View>
+          {button('返回', () => navigation.goBack())}
+          <Text style={[text, { fontSize: 24, fontWeight: '700' }]}>
+            {success.length ? '已送出購買請求' : '確認購買'}
+          </Text>
+          {loading && <ActivityIndicator color={theme.primary} />}
+          {!!error && (
+            <Text accessibilityRole="alert" style={text}>
+              {error}
+            </Text>
+          )}
+          {success.length ? (
+            <>
+              <Text style={text}>
+                等待賣家確認，確認後即可進行後續交易。目前尚未保留商品。
+              </Text>
+              {success.map(id => (
+                <View key={id}>
+                  {button(
+                    '查看訂單 ' + id.slice(0, 8),
+                    () =>
+                      navigation.replace('MarketOrderDetail', { orderId: id }),
+                    true,
+                  )}
+                </View>
+              ))}
+              {button('返回市集', () => navigation.navigate('Market'))}
+            </>
+          ) : (
+            <>
+              {sellerChannelGroups(chosen)
+                .filter(g => g.products.length > 1)
+                .map(g => (
+                  <View
+                    key={g.sellerId}
+                    style={{
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 18,
+                      gap: 10,
+                    }}
+                  >
+                    <Text style={text}>
+                      同賣家一起購買 · {g.products.length} 件
+                    </Text>
+                    {g.options.length ? (
+                      <DeliverySelect
+                        label="合併交易方式"
+                        disabled={busy || submitted.current}
+                        value={
+                          g.products.every(
+                            p => channels[p.id] === channels[g.products[0].id],
+                          )
+                            ? channels[g.products[0].id]
+                            : ''
+                        }
+                        options={g.options.map(o => ({
+                          id: o.channel,
+                          label: channelLabel(o.channel),
+                        }))}
+                        onChange={c =>
+                          change(() => {
+                            setChannels(v => ({
+                              ...v,
+                              ...Object.fromEntries(
+                                g.products.map(p => [p.id, c]),
+                              ),
+                            }));
+                            setMethods(v => ({
+                              ...v,
+                              ...Object.fromEntries(
+                                g.products.map(p => [
+                                  p.id,
+                                  c === 'meetup' ? 'meetup' : 'shipping',
+                                ]),
+                              ),
+                            }));
+                          })
+                        }
+                      />
+                    ) : (
+                      <Text style={text}>
+                        這些商品沒有共同交易方式，請分別選擇，系統會分開建立訂單。
+                      </Text>
+                    )}
+                    <Text style={text}>
+                      同賣家、同管道合併成一張訂單，運費取商品中最高的一筆。
+                    </Text>
+                  </View>
+                ))}
+              {products.map(p => (
+                <View
+                  key={p.id}
+                  style={{
+                    padding: 16,
+                    borderRadius: 18,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    backgroundColor: theme.cardBg,
+                    gap: 10,
+                  }}
+                >
+                  {!direct &&
+                    button(`${selected[p.id] ? '☑' : '☐'} 選取商品`, () =>
+                      change(() =>
+                        setSelected(prev => ({ ...prev, [p.id]: !prev[p.id] })),
+                      ),
+                    )}
+                  <Text style={[text, { fontSize: 20 }]}>{p.title}</Text>
+                  <Text style={text}>{currency(p.price)} · 數量 1</Text>
+                  {!p.allowMeetup && !p.allowShipping && (
+                    <Text style={text}>
+                      賣家尚未設定交易方式，請先聯絡賣家。
+                    </Text>
+                  )}
+                  <DeliverySelect
+                    label="交易方式"
+                    value={channels[p.id] || ''}
+                    options={availableChannels(p).map(o => ({
+                      id: o.channel,
+                      label: `${channelLabel(o.channel)}${
+                        o.channel === 'meetup'
+                          ? ''
+                          : ` · 運費 ${currency(o.fee)}`
+                      }`,
+                    }))}
+                    disabled={busy || submitted.current}
+                    onChange={c =>
+                      change(() => {
+                        setChannels(v => ({ ...v, [p.id]: c }));
+                        setMethods(v => ({
+                          ...v,
+                          [p.id]: c === 'meetup' ? 'meetup' : 'shipping',
+                        }));
+                      })
+                    }
+                  />
+                  <Text style={text}>
+                    {methods[p.id] === 'meetup'
+                      ? `${p.location} ${p.meetupNote || ''}`
+                      : `${p.shippingNote || ''} · 運費 ${currency(
+                          availableChannels(p).find(
+                            o => o.channel === channels[p.id],
+                          )?.fee || 0,
+                        )}`}
+                  </Text>
+                </View>
+              ))}
+              {shipping &&
+                (['name', 'phone', 'address'] as const)
+                  .filter(
+                    k =>
+                      k !== 'address' ||
+                      chosen.some(
+                        p =>
+                          methods[p.id] === 'shipping' &&
+                          !storeChannel(channels[p.id]),
+                      ),
+                  )
+                  .map((k, i) => (
+                    <View key={k}>
+                      <Text style={text}>{['收件人', '電話', '地址'][i]}</Text>
+                      <TextInput
+                        editable={!busy && !submitted.current}
+                        accessibilityLabel={['收件人', '電話', '地址'][i]}
+                        value={recipient[k]}
+                        onChangeText={v =>
+                          change(() =>
+                            setRecipient(prev => ({ ...prev, [k]: v })),
+                          )
+                        }
+                        style={[
+                          text,
+                          {
+                            padding: 14,
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: theme.border,
+                            minHeight: 48,
+                          },
+                        ]}
+                      />
+                    </View>
+                  ))}
+              {[
+                ...new Set(
+                  chosen.map(p => channels[p.id]).filter(storeChannel),
+                ),
+              ].map(c => (
+                <View key={c}>
+                  <Text style={text}>
+                    {channelLabel(c)}取貨門市（請確認資料正確）
+                  </Text>
+                  {(['name', 'code', 'address'] as const).map((k, i) => (
+                    <View key={k}>
+                      <Text style={text}>
+                        {['門市名稱', '門市店號', '門市地址'][i]}
+                      </Text>
+                      <TextInput
+                        style={[
+                          text,
+                          {
+                            minHeight: 48,
+                            padding: 14,
+                            borderWidth: 1,
+                            borderColor: theme.border,
+                            borderRadius: 12,
+                          },
+                        ]}
+                        accessibilityLabel={`${channelLabel(c)}${
+                          ['門市名稱', '門市店號', '門市地址'][i]
+                        }`}
+                        editable={!busy && !submitted.current}
+                        value={recipient.stores?.[c]?.[k] || ''}
+                        onChangeText={value =>
+                          change(() =>
+                            setRecipient(v => ({
+                              ...v,
+                              stores: {
+                                ...v.stores,
+                                [c]: {
+                                  name: '',
+                                  code: '',
+                                  address: '',
+                                  ...v.stores?.[c],
+                                  [k]: value,
+                                },
+                              },
+                            })),
+                          )
+                        }
+                      />
+                    </View>
+                  ))}
+                </View>
+              ))}
+              {groups.map((g, i) => (
+                <View key={i}>
+                  <Text style={text}>
+                    第 {i + 1} 筆請求 · {channelLabel(g.channel)} ·{' '}
+                    {g.items.map(p => p.title).join('、')}
+                  </Text>
+                  <Text style={text}>
+                    小計 {currency(g.subtotal)} · 運費 {currency(g.fee)} · 合計{' '}
+                    {currency(g.subtotal + g.fee)}
+                  </Text>
+                </View>
+              ))}
+              <Text style={text}>
+                同賣家同方式合單；寄送運費取同組最高一件，面交免運。平台未提供代收付款、物流保障。面交自行付款，寄送由賣家自行安排貨到付款。
+              </Text>
+              {button(
+                busy ? '正在送出…' : `送出 ${groups.length} 筆購買請求`,
+                () => void submit(),
+                true,
+                loading || !chosen.length,
+              )}
+              {submitted.current && !!error && (
+                <>
+                  <Text style={text}>
+                    內容已鎖定以避免重複建立。請以相同內容重試，或先到我的購買確認結果。
+                  </Text>
+                  {button('查看我的購買', () =>
+                    navigation.navigate('MarketplaceWorkspace', {
+                      role: 'buyer',
+                      tab: 'orders',
+                    }),
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    height: 60,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-  },
-  backBtn: { paddingVertical: 5, paddingRight: 15, zIndex: 10 },
-  headerTitle: {
-    position: 'absolute', left: 0, right: 0, textAlign: 'center',
-    fontSize: 20, fontWeight: '600',
-  },
-  headerPlaceholder: { width: 32 },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 110,
-  },
-  sectionCard: {
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 16,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  sectionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  infoText: {
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: '500',
-  },
-  paymentOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 14,
-    borderWidth: 1.5,
-    borderRadius: 12,
-    marginBottom: 10,
-  },
-  optionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  optionText: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 10,
-  },
-  itemMinCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  itemTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    flex: 1,
-    marginRight: 10,
-  },
-  itemPrice: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  priceCalcRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  priceCalcLabel: {
-    fontSize: 14,
-  },
-  priceCalcValue: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  divider: {
-    height: 1,
-    marginVertical: 10,
-  },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  totalPrice: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    width: '100%',
-    height: 80,
-    borderTopWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 15,
-  },
-  bottomPriceInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  bottomTotalLabel: {
-    fontSize: 14,
-  },
-  bottomTotalPrice: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  payBtn: {
-    paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 14,
-  },
-  payBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
-
-export default CheckoutScreen;
+}
