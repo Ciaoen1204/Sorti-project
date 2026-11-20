@@ -17,7 +17,10 @@ def prepare_image(content):
 
 
 def parse_vision_boxes(reply):
-    records = json.loads(reply)
+    text = reply.strip()
+    if text.startswith('```'):
+        text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+    records = json.loads(text)
     if not isinstance(records, list) or len(records) > 60:
         raise ValueError('Invalid vision response')
     boxes = []
@@ -42,7 +45,20 @@ def parse_vision_boxes(reply):
     return boxes
 
 
-def detect_with_gemini(image_bytes):
+# Keep the provider schema minimal for model compatibility. All length,
+# count and coordinate constraints remain enforced by parse_vision_boxes.
+VISION_SCHEMA = {
+    'type': 'array',
+    'items': {'type': 'object', 'required': ['name', 'category', 'box_2d'],
+        'properties': {
+            'name': {'type': 'string'},
+            'category': {'type': 'string'},
+            'box_2d': {'type': 'array', 'items': {'type': 'number'}},
+        }},
+}
+
+
+def _detect_with_gemini_once(image_bytes):
     reply = _answer_with_model_fallback(
         '你是居家物品辨識助手。只辨識照片中清楚可見、可整理或移動的實際物品，最多60件。'
         '每件物品各自一筆，不把整個場景當成物品，不猜測遮擋物品，不辨識人物或個人資料。'
@@ -50,9 +66,20 @@ def detect_with_gemini(image_bytes):
         '只輸出JSON陣列，每筆格式為{"name":"物品名稱","category":"分類","box_2d":[ymin,xmin,ymax,xmax]}。'
         '辨識框須緊貼各物品，座標為圖片左上原點、0到1000的正規化座標；沒有物品則輸出[]。',
         get_api_key(), image_bytes=image_bytes, image_mime_type='image/jpeg',
-        json_response=True, temperature=0.1, max_output_tokens=8192,
+        json_response=True, response_schema=VISION_SCHEMA, temperature=0.1, max_output_tokens=8192,
     )
     return parse_vision_boxes(reply)
+
+
+def detect_with_gemini(image_bytes):
+    # Retry malformed model output once; do not retry auth/quota failures here.
+    for attempt in range(2):
+        try:
+            return _detect_with_gemini_once(image_bytes)
+        except (ValueError, TypeError, KeyError, IndexError) as error:
+            if attempt:
+                raise
+            print('Gemini vision format invalid; retrying once:', type(error).__name__)
 
 
 def same_object(a, b):

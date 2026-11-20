@@ -174,7 +174,7 @@ const AIAnalysisAdviceScreen = ({ navigation, route }: any) => {
             斷捨離
           </Text>
           <Text style={[styles.bodyText, { color: theme.textMain }]}>
-            {declutterOverview(detectedItems)}
+            {declutterOverview(detectedItems, rawAdviceText)}
           </Text>
         </View>
 

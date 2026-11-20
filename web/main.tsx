@@ -1265,7 +1265,7 @@ function Analysis() {
               <h2>{tr("收納建議")}</h2>
               <section className="card" aria-label={tr("斷捨離")}>
                 <h3>{tr("斷捨離")}</h3>
-                <p>{tr(declutterOverview(result.detected_items))}</p>
+                <p>{tr(declutterOverview(result.detected_items, advice))}</p>
               </section>
               <AdviceContent text={advice} />
               {tr(adviceNotice && <p role="status">{tr(adviceNotice)}</p>)}
@@ -1748,9 +1748,13 @@ function Items() {
         </section>
       ))}
       {tr(deleteTarget && (
-        <section className="card" role="alertdialog" aria-label={tr("確認刪除物品")}>
+        <dialog className="card inventory-delete-dialog" role="alertdialog" aria-label={tr("確認刪除物品")}
+          ref={node => { if (node && !node.open) node.showModal(); }}
+          onCancel={event => { event.preventDefault(); if (!mutationBusy) setDeleteTarget(null); }}>
+
           <h2>{tr("刪除「")}{tr(deleteTarget.name)}」？</h2>
           <p>{tr("將從物品管理移除，分析紀錄與已刊登商品會保留。")}</p>
+          {mutationError && <p role="alert">{tr(mutationError)}</p>}
           <div className="row">
             <Button disabled={mutationBusy} onClick={remove}>
               {tr(mutationBusy ? '刪除中…' : '確認刪除')}
@@ -1761,7 +1765,7 @@ function Items() {
               onClick={() => setDeleteTarget(null)}
             >{tr("取消刪除")}</Button>
           </div>
-        </section>
+        </dialog>
       ))}
       <Button
         secondary

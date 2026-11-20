@@ -3,12 +3,24 @@ import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
 from main import app
-from vision_detection import parse_vision_boxes, merge_detections
+from vision_detection import parse_vision_boxes, merge_detections, detect_with_gemini
 
 def box(name, x=0, width=.4):
     return dict(name=name, category='用品', x=x, y=0, width=width, height=.5)
 
 class VisionDetectionTest(unittest.TestCase):
+    def test_invalid_output_retries_once_with_schema(self):
+        valid = json.dumps([dict(name='cup', category='items', box_2d=[0, 0, 100, 100])])
+        with patch('vision_detection.get_api_key', return_value='test'), patch('vision_detection._answer_with_model_fallback', side_effect=['broken', valid]) as model:
+            self.assertEqual(len(detect_with_gemini(b'image')), 1)
+        self.assertEqual(model.call_count, 2)
+        self.assertIn('response_schema', model.call_args.kwargs)
+
+    def test_repeated_invalid_output_fails_instead_of_empty_success(self):
+        with patch('vision_detection.get_api_key', return_value='test'), patch('vision_detection._answer_with_model_fallback', return_value='broken') as model:
+            with self.assertRaises(ValueError): detect_with_gemini(b'image')
+        self.assertEqual(model.call_count, 2)
+
     def test_coordinates_and_no_invented_confidence(self):
         result = parse_vision_boxes(json.dumps([dict(name='木製盒', category='收納用品', box_2d=[100, 200, 500, 600])]))[0]
         self.assertEqual(result['source'], 'gemini')
@@ -38,6 +50,9 @@ class VisionDetectionTest(unittest.TestCase):
 
 class HybridEndpointTest(unittest.TestCase):
     def setUp(self):
+        consent = patch('legal_access.verify_consent', return_value=True)
+        consent.start()
+        self.addCleanup(consent.stop)
         patcher = patch('main.analyze_space', side_effect=RuntimeError('space unavailable'))
         patcher.start()
         self.addCleanup(patcher.stop)

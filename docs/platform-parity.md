@@ -498,3 +498,43 @@ Android／PWA 第一次開啟顯示通知、相機權限引導，可略過；系
 ### 月曆日期不拆行
 
 PWA 日格改為固定高度與小內距，日期數字強制單行；打卡勾號獨立置於數字下方，避免兩位數被拆開。Native 日期文字同步保留足夠數字寬度。
+
+
+### 2026-10-16 Google OAuth ??????
+
+Supabase Auth Site URL ? additional_redirect_urls ???? https://compact-specified-fixes-hits.trycloudflare.com??????? Cloudflare ???Android sorti://auth/callback ??????????????? Auth ???????????? APK?PWA Google PKCE ??? session ????? Chromium mobile?WebKit iPhone ? 2 ???????? HTTP 200?????? Google ??????????????????????? Auth ????
+
+
+### 2026-10-16 完整照片收納建議
+
+Android AIAnalysisAdviceScreen 與 PWA generateAdvice 均傳送完整編輯後物品清單、空間分析、收納人格及視覺／分類偏好至共用 /chat。共用後端強化逐項涵蓋與具體位置要求，依類別調整步數並呈現人格對做法的影響；缺少空間、物品或人格時回傳 notice，不虛構觀察。本次僅調整共用後端，兩端無需更新 APK／PWA 資產。
+
+
+### 2026-10-16 物品現況與初步斷捨離
+
+共用照片空間分析在既有 summary／observation 記錄實際物品堆積、混放及可見狀況；共用建議以短卡片說明觀察依據、個別去留檢查、保留／轉讓／回收／暫存條件與歸位方式，不能單憑數量或外觀替使用者決定丟棄。Android 與 PWA 既有流程均使用此後端，無前端或 schema 變更。舊分析未含物品狀況時須重新辨識照片。
+
+
+### 2026-10-16 明確垃圾與物品刪除
+
+核對 Android／PWA 物品管理均提供確認後刪除，照片辨識框也可刪除；保留既有操作與使用者確認。共用 AI 對有觀察證據的明確垃圾直接指示清除，區分一般垃圾、回收與專用管道；無法判斷的包裝、文件等不擅自當垃圾，也不自動刪除紀錄。無前端變更。
+
+
+### 2026-10-16 斷捨離卡片接入 AI
+
+修復 Android／PWA 斷捨離卡片原先僅顯示固定物品總數文字的問題。共用 declutterOverview 改為解析 AI 獨立斷捨離段落，舊報告退回擷取具體去留句，缺漏時提示重新產生而非捏造。後端新增獨立斷捨離段落列出物品、依據與動作。
+
+
+### 2026-10-16 Gemini vision reliability
+
+Observed JSONDecodeError and ValueError in backend logs. Shared vision backend now requests a bounded JSON schema and retries invalid output once, retaining strict coordinate validation and model-only fallback on failure. Both Android and PWA use this endpoint; no client changes. Nine vision tests passed; no guarantee of provider availability or live-photo recognition accuracy.
+
+
+### 2026-10-16 物品刪除確認可見性
+
+PWA 刪除確認由清單上方內嵌區塊改為原生 modal dialog，避免捲動後看不到確認區；錯誤訊息留在彈窗內，取消／Escape 不刪除，保存中禁止關閉。Android 原有原生 Alert 確認保留；資料操作及本人權限不變，無需新版 APK。
+
+
+### 2026-10-16 Gemini schema compatibility hotfix
+
+Reproduced provider 400 INVALID_ARGUMENT with the constrained vision schema using a generated blank image. Minimal object-array schema and JSON-only control both succeeded. Removed provider-side optional constraints while retaining server-side count/label/coordinate validation and bounded malformed-output retry. Android/PWA share backend; no client change.

@@ -34,7 +34,7 @@ class SpaceTest(unittest.TestCase):
 
     def test_space_runs_before_both_object_models(self):
         order=[]
-        with patch('main.prepare_image',return_value=b'image'), patch('main.analyze_space',side_effect=lambda _: (order.append('space'),SpaceAnalysis(**scene()))[1]), patch('main.detect_items',side_effect=lambda _: (order.append('model'),dict(detection_boxes=[],model_name='test'))[1]), patch('main.detect_with_gemini',side_effect=lambda _: (order.append('objects'),[])[1]):
+        with patch('legal_access.verify_consent',return_value=True), patch('main.prepare_image',return_value=b'image'), patch('main.analyze_space',side_effect=lambda _: (order.append('space'),SpaceAnalysis(**scene()))[1]), patch('main.detect_items',side_effect=lambda _: (order.append('model'),dict(detection_boxes=[],model_name='test'))[1]), patch('main.detect_with_gemini',side_effect=lambda _: (order.append('objects'),[])[1]):
             response=TestClient(app).post('/detect-items',files={'image':('photo.jpg',b'image','image/jpeg')})
         self.assertEqual(response.status_code,200)
         self.assertEqual(order,['space','model','objects'])
@@ -50,6 +50,26 @@ class SpaceTest(unittest.TestCase):
         for text in ['左側層架','不能鑽牆','書籍','首席秩序官']: self.assertIn(text,query)
         for text in ['定位法則','常用物放在順手位置','左側層架','不能鑽牆','首席秩序官']: self.assertIn(text,prompt)
         self.assertEqual(result['retrieved_titles'],['定位法則'])
+
+    def test_photo_context_keeps_all_items_and_marks_missing_layout(self):
+        items = [dict(name=f'物品{i}', category='文具', count=i+1) for i in range(30)]
+        with patch('rag_service.retrieve_knowledge', return_value=[]), patch('rag_service._get_api_key', return_value='test'), patch('rag_service._answer_with_model_fallback', return_value='建議') as model:
+            result = answer_question('整理', detected_items=items, mode='photo_analysis')
+        prompt = model.call_args.args[0]
+        for item in items:
+            self.assertIn(item['name'] + '｜類別：文具｜數量：' + str(item['count']), prompt)
+        self.assertIn('未取得空間觀察', prompt)
+        self.assertIn('未取得空間觀察', result['notice'])
+        self.assertIn('尚無收納人格', result['notice'])
+
+    def test_decluttering_prompt_uses_visible_condition_without_assuming_disposal(self):
+        data = scene()
+        data['regions'][0]['observation'] = '層架文件與線材混放，遮擋取用'
+        with patch('rag_service.retrieve_knowledge', return_value=[]), patch('rag_service._get_api_key', return_value='test'), patch('rag_service._answer_with_model_fallback', return_value='建議') as model:
+            answer_question('整理', detected_items=[dict(name='線材', count=4)], user_persona='首席秩序官', mode='photo_analysis', space_analysis=data)
+        prompt = model.call_args.args[0]
+        for phrase in ['層架文件與線材混放，遮擋取用', '先測試並配對設備', '不能僅憑數量判斷過多', '不替使用者決定心動或紀念價值', '先丟掉這些垃圾', '提示專用回收管道', '不自動刪除 App 物品紀錄']:
+            self.assertIn(phrase, prompt)
 
     def test_rag_failure_does_not_claim_sources(self):
         with patch('rag_service.retrieve_knowledge',side_effect=RuntimeError('private')), patch('rag_service._get_api_key',return_value='test'), patch('rag_service._answer_with_model_fallback',return_value='建議'):

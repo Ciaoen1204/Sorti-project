@@ -366,6 +366,7 @@ def _answer_with_model_fallback(
     image_bytes: bytes | None = None,
     image_mime_type: str = "image/jpeg",
     json_response: bool = False,
+    response_schema: Dict[str, Any] | None = None,
 ) -> str:
     preferred_model = os.getenv(
         "GEMINI_MODEL",
@@ -399,6 +400,7 @@ def _answer_with_model_fallback(
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
                     **({'response_mime_type': 'application/json'} if json_response else {}),
+                    **({'response_json_schema': response_schema} if response_schema else {}),
                 ),
             )
 
@@ -623,17 +625,24 @@ def answer_question(
     if normalized_mode == "photo_analysis":
         import json
         # The photo pipeline uses its own prompt, with actual retrieved knowledge.
-        space_text = json.dumps(space_analysis or {}, ensure_ascii=False)
+        space_text = json.dumps(space_analysis, ensure_ascii=False) if space_analysis else '未取得空間觀察；無法確認格局、收納家具與動線，禁止猜測。'
         preferences = {'persona': describe_persona(user_persona), 'focus': persona_response_focus(user_persona), **(storage_preferences or {})}
         preferences_text = json.dumps(preferences, ensure_ascii=False)
         query = f"房間格局 動線 現有收納櫃 分類定位 {question} {formatted_items} {space_text} {preferences_text}"
-        notice = ''
+        missing = []
+        if not space_analysis:
+            missing.append('未取得空間觀察，本次無法指定確切收納位置。')
+        if not user_persona:
+            missing.append('尚無收納人格資料，本次先採中性收納方式。')
+        if not detected_items:
+            missing.append('尚無辨識物品清單，本次僅依已提供資訊建議。')
+        notice = ' '.join(missing)
         try:
             knowledge = [item for item in retrieve_knowledge(query, min(max(top_k, 3), 6), required_ids=('category-order', 'choose-keep')) if item['score'] > 0 or item.get('required')]
         except Exception as error:
             print('Photo RAG unavailable:', type(error).__name__)
             knowledge = []
-            notice = '知識庫暫時無法檢索，本次建議僅使用可見空間、物品與偏好。'
+            notice = ' '.join(filter(None, [notice, '知識庫暫時無法檢索，本次建議僅使用可見空間、物品與偏好。']))
         context = '\n\n'.join(f"[{item['title']}]（{item.get('source_label') or '整理知識'}）\n{item['content']}" for item in knowledge)
         return {
             "reply": _generate_photo_analysis_answer(formatted_items, _get_api_key(), space_text, preferences_text, context, language),

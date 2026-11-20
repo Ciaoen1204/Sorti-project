@@ -1847,12 +1847,12 @@ test('inventory creates manual items, persists intent, filters and confirms dele
     .click();
   await page.getByLabel('存放位置', { exact: true }).fill('書桌抽屜');
   await page.getByRole('button', { name: '儲存位置', exact: true }).click();
-  await expect(pencil).toContainText('已定位 · 存放位置：書桌抽屜');
+  await expect(pencil).toContainText(/已定位\s*· 存放位置：書桌抽屜/);
   expect(account.user_metadata.item_storage_locations['manual-item']).toBe(
     '書桌抽屜',
   );
   await page.reload();
-  await expect(pencil).toContainText('已定位 · 存放位置：書桌抽屜');
+  await expect(pencil).toContainText(/已定位\s*· 存放位置：書桌抽屜/);
   await page
     .getByRole('button', { name: '整理進度：待整理', exact: true })
     .click();
@@ -1883,6 +1883,7 @@ test('inventory creates manual items, persists intent, filters and confirms dele
   await expect(page.getByText('沒有符合搜尋或篩選條件的物品。')).toBeVisible();
   await page.getByLabel('篩選物品狀態').selectOption('all');
   await page.getByRole('button', { name: '刪除物品', exact: true }).click();
+  await expect(page.getByRole('alertdialog', { name: '確認刪除物品' })).toBeInViewport();
   await page.getByRole('button', { name: '取消刪除' }).click();
   expect(deleteCount).toBe(0);
   expect(account.user_metadata.item_dispositions['seed-item']).toBe('discard');
